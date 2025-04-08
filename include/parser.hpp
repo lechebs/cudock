@@ -3,13 +3,17 @@
 #include <string>
 #include <vector>
 
+#include "ligand.hpp"
 #include "pocket.hpp"
 
 namespace cuDock
 {
     namespace Parser
     {
-        std::vector<PocketPoint>
-        readPocketCSV(const std::string &file_path);
+        void read_pocket_csv(const std::string &file_path,
+                             std::vector<Pocket::Point> &points);
+
+        void read_ligand_mol2(const std::string &file_path,
+                              std::vector<Ligand::Atom> &atoms);
     }
 }

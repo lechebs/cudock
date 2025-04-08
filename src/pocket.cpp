@@ -12,28 +12,15 @@
 
 namespace cuDock
 {
-    std::ostream &operator<<(std::ostream &os, const PocketPoint &point)
-    {
-        os << "x=" << point.pos[0] << ", y="
-                   << point.pos[1] << ", z="
-                   << point.pos[2];
-
-        for (int c = 0; c < NUM_POCKET_CHANNELS; ++c) {
-            os << ", psi" << c << "=" << point.channels[c];
-        }
-
-        return os;
-    }
-
     Pocket::Pocket(const std::string &csv_file_path, float cell_size)
     {
-        std::vector<PocketPoint> points =
-            Parser::readPocketCSV(csv_file_path);
+        std::vector<Pocket::Point> points;
+        Parser::read_pocket_csv(csv_file_path, points);
 
         _voxelize(points, cell_size);
     }
 
-    Pocket::Pocket(const std::vector<PocketPoint> &pocket_points,
+    Pocket::Pocket(const std::vector<Pocket::Point> &pocket_points,
                    float cell_size)
     {
         _voxelize(pocket_points, cell_size);
@@ -41,7 +28,7 @@ namespace cuDock
 
     unsigned int Pocket::size() const
     {
-        unsigned int size = NUM_POCKET_CHANNELS;
+        unsigned int size = Pocket::NUM_CHANNELS;
 
         for (int i = 0; i < 3; ++i) {
             size *= _shape[i];
@@ -53,7 +40,7 @@ namespace cuDock
     unsigned int Pocket::shape(int axis) const
     {
         if (axis == 0) {
-            return NUM_POCKET_CHANNELS;
+            return Pocket::NUM_CHANNELS;
         } else {
             return _shape[axis - 1];
         }
@@ -76,9 +63,22 @@ namespace cuDock
     Pocket::~Pocket()
     {
         return;
-        for (int c = 0; c < NUM_POCKET_CHANNELS; ++c) {
+        for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
             delete[] _voxels[c];
         }
+    }
+
+    std::ostream &operator<<(std::ostream &os, const Pocket::Point &point)
+    {
+        os << "x=" << point.pos[0] << ", y="
+                   << point.pos[1] << ", z="
+                   << point.pos[2];
+
+        for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
+            os << ", psi" << c << "=" << point.channels[c];
+        }
+
+        return os;
     }
 
     unsigned int Pocket::_sub_to_idx(unsigned int i,
@@ -89,7 +89,7 @@ namespace cuDock
                j * _shape[2] + k;
     }
 
-    void Pocket::_voxelize(const std::vector<PocketPoint> &points,
+    void Pocket::_voxelize(const std::vector<Pocket::Point> &points,
                            float cell_size)
     {
         float inf = std::numeric_limits<float>::infinity();
@@ -97,7 +97,7 @@ namespace cuDock
         float max_pos[3] = { -inf, -inf, -inf };
 
         // Computing bounding box
-        for (const PocketPoint &p : points) {
+        for (const Pocket::Point &p : points) {
             for (int i = 0; i < 3; ++i) {
                 float val = p.pos[i];
                 if (val < min_pos[i]) {
@@ -116,7 +116,7 @@ namespace cuDock
         }
 
         unsigned int size = _shape[0] * _shape[1] * _shape[2];
-        for (int c = 0; c < NUM_POCKET_CHANNELS; ++c) {
+        for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
             // Allocating and zero-initializing the channel
             _voxels[c] = new float[size];
             std::memset(_voxels[c], 0, size * sizeof(float));
@@ -127,7 +127,7 @@ namespace cuDock
         std::memset(points_count, 0, size * sizeof(int));
 
         // Assigning points to voxels
-        for (const PocketPoint &p : points) {
+        for (const Pocket::Point &p : points) {
             // Computing corresponding voxel coordinates
             unsigned int sub[3];
             for (int i = 0; i < 3; ++i) {
@@ -137,13 +137,13 @@ namespace cuDock
             unsigned int idx = _sub_to_idx(sub[0], sub[1], sub[2]);
             points_count[idx]++;
 
-            for (int c = 0; c < NUM_POCKET_CHANNELS; ++c) {
+            for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
                 _voxels[c][idx] += p.channels[c];
             }
         }
 
         // Averaging the values of the points in the same voxel
-        for (int c = 0; c < NUM_POCKET_CHANNELS; ++c) {
+        for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
             for (unsigned int i = 0; i < size; ++i) {
                 _voxels[c][i] /= std::max(1, points_count[i]);
             }

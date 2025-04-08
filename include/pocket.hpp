@@ -1,26 +1,25 @@
 #pragma once
 
+#include <ostream>
 #include <array>
 #include <vector>
 #include <iostream>
 
 namespace cuDock
 {
-    constexpr int NUM_POCKET_CHANNELS = 9;
-
-    struct PocketPoint
-    {
-        float pos[3]; // x, y, z
-        float channels[NUM_POCKET_CHANNELS];
-    };
-
-    std::ostream &operator<<(std::ostream &os, const PocketPoint &point);
-
     class Pocket
     {
     public:
+        constexpr static int NUM_CHANNELS = 8;
+
+        struct Point
+        {
+            float pos[3]; // x, y, z
+            float channels[NUM_CHANNELS];
+        };
+
         Pocket(const std::string &csv_file_path, float cell_size);
-        Pocket(const std::vector<PocketPoint> &pocket_points, float cell_size);
+        Pocket(const std::vector<Point> &pocket_points, float cell_size);
 
         unsigned int size() const;
 
@@ -41,11 +40,13 @@ namespace cuDock
                                  unsigned int j = 0,
                                  unsigned int k = 0) const;
 
-        void _voxelize(const std::vector<PocketPoint> &points,
+        void _voxelize(const std::vector<Point> &points,
                        float cell_size);
 
-        std::array<float *, NUM_POCKET_CHANNELS> _voxels;
+        std::array<float *, NUM_CHANNELS> _voxels;
 
         unsigned int _shape[3];
     };
+
+    std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);
 }

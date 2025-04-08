@@ -15,40 +15,87 @@ namespace cuDock
     {
         const static int MAX_LINE_SIZE = 256;
 
-        std::vector<PocketPoint> readPocketCSV(const std::string &file_path)
+        void read_pocket_csv(const std::string &file_path,
+                             std::vector<Pocket::Point> &points)
         {
-            std::vector<PocketPoint> points;
             std::ifstream input(file_path);
 
             char buff[MAX_LINE_SIZE];
 
             // Read csv header
-            input.getline(buff, MAX_LINE_SIZE);
+            input.ignore(MAX_LINE_SIZE, '\n');
 
             while (!input.getline(buff, MAX_LINE_SIZE).eof()) {
-                char *ptr = strtok(buff, " ,");
+                char *ptr = std::strtok(buff, " ,");
 
                 // Ignore n, pocket_n, pocket_score and pocket_overlap fields
                 for (int i = 0; i < 4; ++i) {
-                    ptr = strtok(nullptr, " ,");
+                    ptr = std::strtok(nullptr, " ,");
                 }
 
-                PocketPoint point;
+                Pocket::Point point;
                 // Read x, y, z
                 for (int i = 0; i < 3; ++i) {
                     point.pos[i] = std::strtof(ptr, nullptr);
-                    ptr = strtok(nullptr, " ,");
+                    ptr = std::strtok(nullptr, " ,");
                 }
-                // Read psi channels
-                for (int i = 0; i < 9; ++i) {
+                // Ignore psi field
+                ptr = std::strtok(nullptr, " ,");
+                // Read psi1-8 fields
+                for (int i = 0; i < Pocket::NUM_CHANNELS; ++i) {
                     point.channels[i] = std::strtof(ptr, nullptr);
-                    ptr = strtok(nullptr, " ,");
+                    ptr = std::strtok(nullptr, " ,");
                 }
 
                 points.push_back(point);
             }
 
-            return points;
+            points.shrink_to_fit();
+        }
+
+        void read_ligand_mol2(const std::string &file_path,
+                              std::vector<Ligand::Atom> &atoms)
+        {
+            std::ifstream input(file_path);
+
+            char buff[MAX_LINE_SIZE];
+
+            // Read until @<TRIPOS>MOLECULE
+            input.ignore(MAX_LINE_SIZE, '@');
+            input.ignore(MAX_LINE_SIZE, '\n');
+            // Ignore mol_name
+            input.ignore(MAX_LINE_SIZE, '\n');
+
+            int num_atoms;
+            input >> num_atoms;
+            // Read until @<TRIPOS>ATOM
+            input.ignore(MAX_LINE_SIZE, '@');
+            input.ignore(MAX_LINE_SIZE, '\n');
+
+            for (int i = 0; i < num_atoms; ++i) {
+                input.getline(buff, MAX_LINE_SIZE);
+
+                char *ptr = std::strtok(buff, " ");
+                // Ignore atom_id and atom_name
+                for (int j = 0; j < 2; ++j) {
+                    ptr = std::strtok(nullptr, " ");
+                }
+
+                Ligand::Atom atom;
+                // Read x, y, z
+                for (int j = 0; j < 3; ++j) {
+                    atom.pos[j] = std::strtof(ptr, nullptr);
+                    ptr = std::strtok(nullptr, " ");
+                }
+                // Read atom_type
+                atom.type = Ligand::get_atom_type_by_name(ptr);
+
+                std::cout << atom << std::endl;
+
+                atoms.push_back(atom);
+            }
+
+            atoms.shrink_to_fit();
         }
     }
 }
