@@ -5,6 +5,7 @@
 
 #include "parser.hpp"
 #include "pocket.hpp"
+#include "scoring.hpp"
 
 using namespace cuDock;
 
@@ -21,6 +22,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
 
     Pocket pocket(points, 2.0);
     Ligand ligand(atoms);
+
+    std::cout << Scoring::evaluate_score(pocket, ligand) << std::endl;
 
     /*
     int d = pocket.shape(1);

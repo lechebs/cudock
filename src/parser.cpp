@@ -90,8 +90,6 @@ namespace cuDock
                 // Read atom_type
                 atom.type = Ligand::get_atom_type_by_name(ptr);
 
-                std::cout << atom << std::endl;
-
                 atoms.push_back(atom);
             }
 

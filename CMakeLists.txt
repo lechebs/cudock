@@ -58,6 +58,7 @@ list(APPEND header_files
   "${header_path}/parser.hpp"
   "${header_path}/pocket.hpp"
   "${header_path}/ligand.hpp"
+  "${header_path}/scoring.hpp"
 )
 
 # sources
@@ -66,6 +67,7 @@ list(APPEND source_files
   "${source_path}/parser.cpp"
   "${source_path}/pocket.cpp"
   "${source_path}/ligand.cpp"
+  "${source_path}/scoring.cpp"
   "${source_path}/main.cpp"
 )
 

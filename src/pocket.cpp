@@ -3,6 +3,7 @@
 #include <ostream>
 #include <string>
 #include <vector>
+#include <array>
 #include <limits>
 #include <cmath>
 #include <cstring>
@@ -12,18 +13,20 @@
 
 namespace cuDock
 {
-    Pocket::Pocket(const std::string &csv_file_path, float cell_size)
+    Pocket::Pocket(const std::string &csv_file_path, float cell_size) :
+        _cell_size(cell_size)
     {
         std::vector<Pocket::Point> points;
         Parser::read_pocket_csv(csv_file_path, points);
 
-        _voxelize(points, cell_size);
+        _voxelize(points);
     }
 
     Pocket::Pocket(const std::vector<Pocket::Point> &pocket_points,
-                   float cell_size)
+                   float cell_size) :
+        _cell_size(cell_size)
     {
-        _voxelize(pocket_points, cell_size);
+        _voxelize(pocket_points);
     }
 
     unsigned int Pocket::size() const
@@ -39,25 +42,38 @@ namespace cuDock
 
     unsigned int Pocket::shape(int axis) const
     {
-        if (axis == 0) {
-            return Pocket::NUM_CHANNELS;
-        } else {
-            return _shape[axis - 1];
-        }
+        return _shape[axis];
     }
 
-    float Pocket::operator()(unsigned int c,
-                             unsigned int i,
-                             unsigned int j,
-                             unsigned int k) const
+    void Pocket::domain(int axis, float &min, float &max) const
+    {
+        min = _domain[axis];
+        max = _domain[axis + 3];
+    }
+
+    float Pocket::voxel(unsigned int c,
+                        unsigned int i,
+                        unsigned int j,
+                        unsigned int k) const
     {
         return _voxels[c][_sub_to_idx(i, j, k)];
     }
 
-    const float *Pocket::operator()(unsigned int c,
-                                    unsigned int i) const
+    const float *Pocket::voxels(unsigned int c,
+                                unsigned int i) const
     {
         return &_voxels[c][_sub_to_idx(i)];
+    }
+
+    void Pocket::lookup(const float pos[3],
+                        std::array<float, Pocket::NUM_CHANNELS> &values) const
+    {
+        unsigned int sub[3];
+        _pos_to_sub(pos, sub);
+
+        for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
+            values[c] = voxel(c, sub[0], sub[1], sub[2]);
+        }
     }
 
     Pocket::~Pocket()
@@ -89,8 +105,17 @@ namespace cuDock
                j * _shape[2] + k;
     }
 
-    void Pocket::_voxelize(const std::vector<Pocket::Point> &points,
-                           float cell_size)
+    // TODO: handle pos out of domain
+    void Pocket::_pos_to_sub(const float pos[3],
+                             unsigned int sub[3]) const
+    {
+        for (int i = 0; i < 3; ++i) {
+            sub[i] = static_cast<unsigned int>(
+                std::floor((pos[2 - i] - _domain[i]) / _cell_size));
+        }
+    }
+
+    void Pocket::_voxelize(const std::vector<Pocket::Point> &points)
     {
         float inf = std::numeric_limits<float>::infinity();
         float min_pos[3] = { inf, inf, inf };
@@ -109,10 +134,12 @@ namespace cuDock
         }
 
         for (int i = 0; i < 3; ++i) {
+            _domain[i] = min_pos[2 - i];
+            _domain[i + 3] = max_pos[2 - i];
             // PocketPoint coordinates are x, y, z
             // while voxels are stored as depth, height, width
             _shape[i] = static_cast<unsigned int>(
-                std::ceil((max_pos[2 - i] - min_pos[2 - i]) / cell_size));
+                std::ceil((_domain[i + 3] - _domain[i]) / _cell_size));
         }
 
         unsigned int size = _shape[0] * _shape[1] * _shape[2];
@@ -130,10 +157,8 @@ namespace cuDock
         for (const Pocket::Point &p : points) {
             // Computing corresponding voxel coordinates
             unsigned int sub[3];
-            for (int i = 0; i < 3; ++i) {
-                sub[i] = static_cast<unsigned int>(
-                    std::floor((p.pos[2 - i] - min_pos[2 - i]) / cell_size));
-            }
+            _pos_to_sub(p.pos, sub);
+
             unsigned int idx = _sub_to_idx(sub[0], sub[1], sub[2]);
             points_count[idx]++;
 

@@ -20,9 +20,39 @@ namespace cuDock
         { "H",     8 }
     };
 
+    /*
+     * Channels:
+     * 1. Simmetric
+     * 2. Gravitational
+     * 3. Electrostatic
+     * 4. Lipophilicity
+     * 5. Hidrophilicity
+     * 6. Polar
+     * 7. HB Acceptor
+     * 8. HB Donor
+     */
+
+    const std::vector<unsigned int>
+    Ligand::_channel_masks = {
+        0b01100101,
+        0b10001000,
+        0b00101100,
+        0b01111100,
+        0b01111100,
+        0b01100100,
+        0b10001000,
+        0b00101100,
+        0b10000000
+    };
+
     unsigned int Ligand::get_atom_type_by_name(const std::string &name)
     {
         return _atom_type_map.at(name);
+    }
+
+    unsigned int Ligand::get_atom_channel_mask(unsigned int atom_type)
+    {
+        return _channel_masks[atom_type];
     }
 
     Ligand::Ligand(const std::string &mol2_file_path)
@@ -32,7 +62,7 @@ namespace cuDock
 
     Ligand::Ligand(std::vector<Ligand::Atom> atoms) : _atoms(atoms) {}
 
-    const std::vector<Ligand::Atom> &Ligand::get_atoms()
+    const std::vector<Ligand::Atom> &Ligand::get_atoms() const
     {
         return _atoms;
     }

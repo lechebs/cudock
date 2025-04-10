@@ -3,6 +3,7 @@
 #include <ostream>
 #include <array>
 #include <vector>
+#include <array>
 #include <iostream>
 
 namespace cuDock
@@ -25,13 +26,18 @@ namespace cuDock
 
         unsigned int shape(int axis) const;
 
-        float operator()(unsigned int c,
-                         unsigned int i,
-                         unsigned int j,
-                         unsigned int k) const;
+        void domain(int axis, float &min, float &max) const;
 
-        const float *operator()(unsigned int c,
-                                unsigned int i = 0) const;
+        float voxel(unsigned int c,
+                    unsigned int i,
+                    unsigned int j,
+                    unsigned int k) const;
+
+        const float *voxels(unsigned int c,
+                            unsigned int i = 0) const;
+
+        void lookup(const float pos[3],
+                    std::array<float, NUM_CHANNELS> &values) const;
 
         ~Pocket();
     private:
@@ -39,12 +45,16 @@ namespace cuDock
         unsigned int _sub_to_idx(unsigned int i = 0,
                                  unsigned int j = 0,
                                  unsigned int k = 0) const;
+        // Converts a (x, y, z) position into a 3d subscript
+        void _pos_to_sub(const float pos[3],
+                         unsigned int sub[3]) const;
 
-        void _voxelize(const std::vector<Point> &points,
-                       float cell_size);
+        void _voxelize(const std::vector<Point> &points);
 
         std::array<float *, NUM_CHANNELS> _voxels;
 
+        float _cell_size;
+        float _domain[6];
         unsigned int _shape[3];
     };
 
