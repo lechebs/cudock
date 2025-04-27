@@ -6,6 +6,8 @@
 #include <array>
 #include <iostream>
 
+#include "vec3.hpp"
+
 namespace cuDock
 {
     class Pocket
@@ -15,28 +17,30 @@ namespace cuDock
 
         struct Point
         {
-            float pos[3]; // x, y, z
-            float channels[NUM_CHANNELS];
+            vec3 pos; // x, y, z
+            std::array<float, NUM_CHANNELS> channels;
         };
 
         Pocket(const std::string &csv_file_path, float cell_size);
         Pocket(const std::vector<Point> &pocket_points, float cell_size);
 
-        unsigned int size() const;
+        unsigned int get_size() const;
 
-        unsigned int shape(int axis) const;
+        unsigned int get_shape(int cartesian_axis) const;
 
-        void domain(int axis, float &min, float &max) const;
+        // The pocket is enclosed in the box of space spanning from (0, 0, 0)
+        // to (get_domain_size(0), get_domain_size(1), get_domain_size(2))
+        float get_domain_size(int cartesian_axis) const;
 
-        float voxel(unsigned int c,
-                    unsigned int i,
-                    unsigned int j,
-                    unsigned int k) const;
+        float get_voxel(unsigned int c,
+                        unsigned int i,
+                        unsigned int j,
+                        unsigned int k) const;
 
-        const float *voxels(unsigned int c,
-                            unsigned int i = 0) const;
+        const float *get_voxels(unsigned int c,
+                                unsigned int i = 0) const;
 
-        void lookup(const float pos[3],
+        void lookup(const vec3 &pos,
                     std::array<float, NUM_CHANNELS> &values) const;
 
         ~Pocket();
@@ -46,16 +50,16 @@ namespace cuDock
                                  unsigned int j = 0,
                                  unsigned int k = 0) const;
         // Converts a (x, y, z) position into a 3d subscript
-        void _pos_to_sub(const float pos[3],
-                         unsigned int sub[3]) const;
+        void _pos_to_sub(const vec3 &pos,
+                         vec3ui &sub) const;
 
         void _voxelize(const std::vector<Point> &points);
 
         std::array<float *, NUM_CHANNELS> _voxels;
 
         float _cell_size;
-        float _domain[6];
-        unsigned int _shape[3];
+        vec3 _domain_size;
+        vec3ui _shape;
     };
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);

@@ -8,7 +8,7 @@
 
 namespace cuDock
 {
-    namespace Parser
+    namespace Parsing
     {
         void read_pocket_csv(const std::string &file_path,
                              std::vector<Pocket::Point> &points);

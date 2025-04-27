@@ -9,7 +9,8 @@
 #include <cstring>
 #include <iomanip>
 
-#include "parser.hpp"
+#include "parsing.hpp"
+#include "vec3.hpp"
 
 namespace cuDock
 {
@@ -17,7 +18,7 @@ namespace cuDock
         _cell_size(cell_size)
     {
         std::vector<Pocket::Point> points;
-        Parser::read_pocket_csv(csv_file_path, points);
+        Parsing::read_pocket_csv(csv_file_path, points);
 
         _voxelize(points);
     }
@@ -29,7 +30,7 @@ namespace cuDock
         _voxelize(pocket_points);
     }
 
-    unsigned int Pocket::size() const
+    unsigned int Pocket::get_size() const
     {
         unsigned int size = Pocket::NUM_CHANNELS;
 
@@ -40,45 +41,43 @@ namespace cuDock
         return size;
     }
 
-    unsigned int Pocket::shape(int axis) const
+    unsigned int Pocket::get_shape(int cartesian_axis) const
     {
-        return _shape[axis];
+        return _shape[2 - cartesian_axis];
     }
 
-    void Pocket::domain(int axis, float &min, float &max) const
+    float Pocket::get_domain_size(int cartesian_axis) const
     {
-        min = _domain[axis];
-        max = _domain[axis + 3];
+        return _domain_size[2 - cartesian_axis];
     }
 
-    float Pocket::voxel(unsigned int c,
-                        unsigned int i,
-                        unsigned int j,
-                        unsigned int k) const
+    float Pocket::get_voxel(unsigned int c,
+                            unsigned int i,
+                            unsigned int j,
+                            unsigned int k) const
     {
         return _voxels[c][_sub_to_idx(i, j, k)];
     }
 
-    const float *Pocket::voxels(unsigned int c,
-                                unsigned int i) const
+    const float *Pocket::get_voxels(unsigned int c,
+                                    unsigned int i) const
     {
         return &_voxels[c][_sub_to_idx(i)];
     }
 
-    void Pocket::lookup(const float pos[3],
+    void Pocket::lookup(const vec3 &pos,
                         std::array<float, Pocket::NUM_CHANNELS> &values) const
     {
-        unsigned int sub[3];
+        vec3ui sub;
         _pos_to_sub(pos, sub);
 
         for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
-            values[c] = voxel(c, sub[0], sub[1], sub[2]);
+            values[c] = get_voxel(c, sub[0], sub[1], sub[2]);
         }
     }
 
     Pocket::~Pocket()
     {
-        return;
         for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
             delete[] _voxels[c];
         }
@@ -105,13 +104,11 @@ namespace cuDock
                j * _shape[2] + k;
     }
 
-    // TODO: handle pos out of domain
-    void Pocket::_pos_to_sub(const float pos[3],
-                             unsigned int sub[3]) const
+    void Pocket::_pos_to_sub(const vec3 &pos, vec3ui &sub) const
     {
         for (int i = 0; i < 3; ++i) {
             sub[i] = static_cast<unsigned int>(
-                std::floor((pos[2 - i] - _domain[i]) / _cell_size));
+                std::floor(pos[2 - i] / _cell_size));
         }
     }
 
@@ -134,12 +131,11 @@ namespace cuDock
         }
 
         for (int i = 0; i < 3; ++i) {
-            _domain[i] = min_pos[2 - i];
-            _domain[i + 3] = max_pos[2 - i];
             // PocketPoint coordinates are x, y, z
             // while voxels are stored as depth, height, width
-            _shape[i] = static_cast<unsigned int>(
-                std::ceil((_domain[i + 3] - _domain[i]) / _cell_size));
+            _domain_size[2 - i] = max_pos[i] - min_pos[i];
+            _shape[2 - i] = static_cast<unsigned int>(
+                std::ceil(_domain_size[2 - i] / _cell_size));
         }
 
         unsigned int size = _shape[0] * _shape[1] * _shape[2];
@@ -156,8 +152,13 @@ namespace cuDock
         // Assigning points to voxels
         for (const Pocket::Point &p : points) {
             // Computing corresponding voxel coordinates
-            unsigned int sub[3];
-            _pos_to_sub(p.pos, sub);
+            vec3 pos;
+            vec3ui sub;
+            // Translating domain bottom-left corner into origin
+            for (int i = 0; i < 3; ++i) {
+                pos[i] = p.pos[i] - min_pos[i];
+            }
+            _pos_to_sub(pos, sub);
 
             unsigned int idx = _sub_to_idx(sub[0], sub[1], sub[2]);
             points_count[idx]++;

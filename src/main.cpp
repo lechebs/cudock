@@ -3,9 +3,9 @@
 #include <string>
 #include <iomanip>
 
-#include "parser.hpp"
+#include "parsing.hpp"
 #include "pocket.hpp"
-#include "scoring.hpp"
+#include "docker.hpp"
 
 using namespace cuDock;
 
@@ -15,15 +15,22 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     const std::string ligand_file_path = "../data/10gs_ligand1.mol2";
 
     std::vector<Pocket::Point> points;
-    Parser::read_pocket_csv(pocket_file_path, points);
+    Parsing::read_pocket_csv(pocket_file_path, points);
 
     std::vector<Ligand::Atom> atoms;
-    Parser::read_ligand_mol2(ligand_file_path, atoms);
+    Parsing::read_ligand_mol2(ligand_file_path, atoms);
 
     Pocket pocket(points, 2.0);
     Ligand ligand(atoms);
 
-    std::cout << Scoring::evaluate_score(pocket, ligand) << std::endl;
+    Docker docker(pocket, ligand);
+    docker.run_random_poses(10);
+
+    for (float score : docker.get_scores()) {
+        std::cout << score << std::endl;
+    }
+
+    // std::cout << Scoring::evaluate_score(pocket, ligand) << std::endl;
 
     /*
     int d = pocket.shape(1);

@@ -1,4 +1,4 @@
-#include "parser.hpp"
+#include "parsing.hpp"
 
 #include <fstream>
 #include <vector>
@@ -11,7 +11,7 @@
 
 namespace cuDock
 {
-    namespace Parser
+    namespace Parsing
     {
         const static int MAX_LINE_SIZE = 256;
 

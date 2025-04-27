@@ -55,19 +55,20 @@ endforeach()
 # headers
 set(header_path "${CMAKE_CURRENT_SOURCE_DIR}/include")
 list(APPEND header_files
-  "${header_path}/parser.hpp"
+  "${header_path}/parsing.hpp"
+  "${header_path}/vec3.hpp"
   "${header_path}/pocket.hpp"
   "${header_path}/ligand.hpp"
-  "${header_path}/scoring.hpp"
+  "${header_path}/docker.hpp"
 )
 
 # sources
 set(source_path "${CMAKE_CURRENT_SOURCE_DIR}/src")
 list(APPEND source_files
-  "${source_path}/parser.cpp"
+  "${source_path}/parsing.cpp"
   "${source_path}/pocket.cpp"
   "${source_path}/ligand.cpp"
-  "${source_path}/scoring.cpp"
+  "${source_path}/docker.cpp"
   "${source_path}/main.cpp"
 )
 

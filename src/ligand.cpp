@@ -2,8 +2,9 @@
 
 #include <string>
 #include <vector>
+#include <cmath>
 
-#include "parser.hpp"
+#include "parsing.hpp"
 
 namespace cuDock
 {
@@ -45,6 +46,19 @@ namespace cuDock
         0b10000000
     };
 
+    const std::vector<float>
+    Ligand::_atom_mass = {
+        14.01,
+        12.01,
+        12.01,
+        16.00,
+        16.00,
+        14.01,
+        32.07,
+        12.01,
+        1.008
+    };
+
     unsigned int Ligand::get_atom_type_by_name(const std::string &name)
     {
         return _atom_type_map.at(name);
@@ -55,16 +69,65 @@ namespace cuDock
         return _channel_masks[atom_type];
     }
 
-    Ligand::Ligand(const std::string &mol2_file_path)
+    float Ligand::get_atom_mass(unsigned int atom_type)
     {
-        Parser::read_ligand_mol2(mol2_file_path, _atoms);
+        return _atom_mass[atom_type];
     }
 
-    Ligand::Ligand(std::vector<Ligand::Atom> atoms) : _atoms(atoms) {}
+    Ligand::Ligand(const std::string &mol2_file_path)
+    {
+        Parsing::read_ligand_mol2(mol2_file_path, _atoms);
+        _translate_com_to_origin();
+    }
+
+    Ligand::Ligand(std::vector<Ligand::Atom> atoms) : _atoms(atoms)
+    {
+        _translate_com_to_origin();
+    }
 
     const std::vector<Ligand::Atom> &Ligand::get_atoms() const
     {
         return _atoms;
+    }
+
+    float Ligand::get_radius() const
+    {
+        return _radius;
+    }
+
+    void Ligand::_translate_com_to_origin()
+    {
+        float tot_mass = 0;
+        float com[3] = { 0, 0, 0 };
+
+        for (Ligand::Atom &atom : _atoms) {
+            float mass = Ligand::get_atom_mass(atom.type);
+            for (int i = 0; i < 3; ++i) {
+                com[i] += atom.pos[i] * mass;
+            }
+            tot_mass += mass;
+        }
+
+        for (int i = 0; i < 3; ++i) {
+            com[i] /= tot_mass;
+        }
+
+        float radius = 0;
+        for (Ligand::Atom &atom : _atoms) {
+            float r = 0;
+            for (int i = 0; i < 3; ++i) {
+                // Translating
+                atom.pos[i] -= com[i];
+                // Computing distance to com
+                r += atom.pos[i] * atom.pos[i];
+            }
+
+            if (r > radius) {
+                radius =  r;
+            }
+        }
+
+        _radius = std::sqrt(radius);
     }
 
     std::ostream &operator<<(std::ostream &os, const Ligand::Atom &atom)
@@ -76,5 +139,4 @@ namespace cuDock
 
         return os;
     }
-
 }
