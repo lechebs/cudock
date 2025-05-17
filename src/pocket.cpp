@@ -32,7 +32,7 @@ namespace cuDock
 
     unsigned int Pocket::get_size() const
     {
-        unsigned int size = Pocket::NUM_CHANNELS;
+        unsigned int size = 1;
 
         for (int i = 0; i < 3; ++i) {
             size *= _shape[i];
@@ -81,6 +81,9 @@ namespace cuDock
         for (int c = 0; c < Pocket::NUM_CHANNELS; ++c) {
             delete[] _voxels[c];
         }
+
+        off_gpu(GPU_GMEM);
+        off_gpu(GPU_TMEM);
     }
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point)

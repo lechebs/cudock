@@ -16,8 +16,10 @@ namespace cuDock
         _rng(42)
     {}
 
-    void Docker::run_random_poses(int num_poses)
+    void Docker::generate_random_poses(int num_poses)
     {
+        _reinit_buffers(num_poses);
+
         for (int i = 0; i < num_poses; ++i) {
             vec3 delta, angles;
             for (int j = 0; j < 3; ++j) {
@@ -32,8 +34,18 @@ namespace cuDock
             _translations.push_back(delta);
             _rotations.push_back(angles);
         }
+    }
 
-        _score_poses(num_poses);
+    void Docker::run()
+    {
+        int num_poses = _translations.size();
+        if (num_poses > 0) {
+            if (_pocket.is_on_gpu() && _is_on_gpu) {
+                _score_poses_gpu(num_poses);
+            } else {
+                _score_poses(num_poses);
+            }
+        }
     }
 
     const std::vector<float> &Docker::get_scores()
@@ -107,5 +119,10 @@ namespace cuDock
             }
             _scores.push_back(score);
         }
+    }
+
+    Docker::~Docker()
+    {
+        off_gpu();
     }
 }

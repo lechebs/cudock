@@ -6,7 +6,10 @@
 #include <array>
 #include <iostream>
 
+#include <cuda_runtime_api.h>
+
 #include "vec3.hpp"
+#include "utils.cuh"
 
 namespace cuDock
 {
@@ -23,6 +26,17 @@ namespace cuDock
 
         Pocket(const std::string &csv_file_path, float cell_size);
         Pocket(const std::vector<Point> &pocket_points, float cell_size);
+
+        void to_gpu(enum GPUMemType mem_type);
+        void off_gpu(enum GPUMemType mem_type);
+
+        bool is_on_gpu() const;
+        bool is_on_gpu(enum GPUMemType mem_type) const;
+
+        const std::array<float *, NUM_CHANNELS> &get_gpu_gmem_voxels() const;
+
+        const std::array<cudaTextureObject_t, NUM_CHANNELS>
+        &get_gpu_tmem_voxels() const;
 
         unsigned int get_size() const;
 
@@ -60,6 +74,12 @@ namespace cuDock
         float _cell_size;
         vec3 _domain_size;
         vec3ui _shape;
+
+        std::array<float *, NUM_CHANNELS> _gpu_global_voxels;
+        std::array<cudaArray_t, NUM_CHANNELS> _gpu_array_voxels;
+        std::array<cudaTextureObject_t, NUM_CHANNELS> _gpu_texture_voxels;
+
+        std::array<bool, 2> _is_on_gpu = { 0, 0 };
     };
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);

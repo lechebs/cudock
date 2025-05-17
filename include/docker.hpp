@@ -15,9 +15,16 @@ namespace cuDock
     public:
         Docker(const Pocket &pocket, const Ligand &ligand);
 
-        void run_random_poses(int num_poses);
+        void generate_random_poses(int num_poses);
+
+        void to_gpu();
+        void off_gpu();
+
+        void run();
 
         const std::vector<float> &get_scores();
+
+        ~Docker();
 
     private:
         static void _rotate(vec3 pos, const vec3 &angles, vec3 &dst);
@@ -25,6 +32,8 @@ namespace cuDock
 
         void _reinit_buffers(int num_poses);
         void _score_poses(int num_poses);
+
+        void _score_poses_gpu(int num_poses);
 
         const Pocket &_pocket;
         const Ligand &_ligand;
@@ -35,5 +44,15 @@ namespace cuDock
 
         std::default_random_engine _rng;
         std::uniform_real_distribution<float> _dist;
+
+        bool _is_on_gpu = 0;
+
+        float *_gpu_translations_x;
+        float *_gpu_translations_y;
+        float *_gpu_translations_z;
+
+        float *_gpu_rotations_x;
+        float *_gpu_rotations_y;
+        float *_gpu_rotations_z;
     };
 }

@@ -23,33 +23,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     Pocket pocket(points, 2.0);
     Ligand ligand(atoms);
 
+    pocket.to_gpu(GPU_GMEM);
+
     Docker docker(pocket, ligand);
-    docker.run_random_poses(10);
 
-    for (float score : docker.get_scores()) {
-        std::cout << score << std::endl;
-    }
+    docker.generate_random_poses(100);
+    docker.to_gpu();
 
-    // std::cout << Scoring::evaluate_score(pocket, ligand) << std::endl;
-
-    /*
-    int d = pocket.shape(1);
-    int h = pocket.shape(2);
-    int w = pocket.shape(3);
-
-    std::cout << std::setprecision(3) << std::fixed;
-
-    std::cout << std::endl;
-    for (int i = 0; i < d; ++i) {
-        for (int j = 0; j < h; ++j) {
-            for (int k = 0; k < w; ++k) {
-                std::cout << pocket(2, i, j, k) << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << std::endl;
-    }
-    */
+    docker.run();
 
     return EXIT_SUCCESS;
 }

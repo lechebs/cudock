@@ -67,8 +67,10 @@ set(source_path "${CMAKE_CURRENT_SOURCE_DIR}/src")
 list(APPEND source_files
   "${source_path}/parsing.cpp"
   "${source_path}/pocket.cpp"
+  "${source_path}/pocket.cu"
   "${source_path}/ligand.cpp"
   "${source_path}/docker.cpp"
+  "${source_path}/docker.cu"
   "${source_path}/main.cpp"
 )
 
@@ -81,13 +83,21 @@ add_executable(main ${header_files} ${source_files})
 target_include_directories(main PRIVATE "${header_path}")
 set_target_properties(main
     PROPERTIES
-      CXX_STANDARD 20
+      CXX_STANDARD 17
       CXX_STANDARD_REQUIRED ON
       CXX_EXTENSIONS OFF
+      CUDA_STANDARD 17
+      CUDA_STANDARD_REQUIRED ON
   )
 
 # add the dependencies
 target_link_libraries(main CUDA::cudart_static)
+
+# set nvcc flags
+target_compile_options(main PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+                       -arch=compute_89
+                       -code=sm_89
+                       >)
 
 #########################################################################
 #### Declare the install step

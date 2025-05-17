@@ -8,10 +8,20 @@
 #include "pocket.hpp"
 
 namespace cuDock
-{
+{ 
     class Ligand
     {
     public:
+        static const unsigned int MAX_NUM_ATOMS = 64;
+
+        struct GPUData
+        {
+            float atoms_x[Ligand::MAX_NUM_ATOMS];
+            float atoms_y[Ligand::MAX_NUM_ATOMS];
+            float atoms_z[Ligand::MAX_NUM_ATOMS];
+            unsigned int atom_type[Ligand::MAX_NUM_ATOMS];
+        };
+
         struct Atom
         {
             unsigned int type;
@@ -39,6 +49,8 @@ namespace cuDock
 
         std::vector<Atom> _atoms;
         float _radius;
+
+        bool _is_on_gpu;
     };
 
     std::ostream &operator<<(std::ostream &os, const Ligand::Atom &atom);
