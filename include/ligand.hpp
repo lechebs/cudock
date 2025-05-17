@@ -16,10 +16,10 @@ namespace cuDock
 
         struct GPUData
         {
-            float atoms_x[Ligand::MAX_NUM_ATOMS];
-            float atoms_y[Ligand::MAX_NUM_ATOMS];
-            float atoms_z[Ligand::MAX_NUM_ATOMS];
-            unsigned int atom_type[Ligand::MAX_NUM_ATOMS];
+            float atoms_x[MAX_NUM_ATOMS];
+            float atoms_y[MAX_NUM_ATOMS];
+            float atoms_z[MAX_NUM_ATOMS];
+            unsigned int atom_type[MAX_NUM_ATOMS];
         };
 
         struct Atom
@@ -36,6 +36,7 @@ namespace cuDock
         Ligand(std::vector<Atom> atoms);
 
         const std::vector<Atom> &get_atoms() const;
+        int get_num_atoms() const;
         float get_radius() const;
 
     private:

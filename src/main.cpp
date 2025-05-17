@@ -27,7 +27,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
 
     Docker docker(pocket, ligand);
 
-    docker.generate_random_poses(100);
+    docker.generate_random_poses(1000);
     docker.to_gpu();
 
     docker.run();

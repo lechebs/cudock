@@ -47,12 +47,7 @@ namespace cuDock
 
         bool _is_on_gpu = 0;
 
-        float *_gpu_translations_x;
-        float *_gpu_translations_y;
-        float *_gpu_translations_z;
-
-        float *_gpu_rotations_x;
-        float *_gpu_rotations_y;
-        float *_gpu_rotations_z;
+        float3 *_gpu_translations;
+        float3 *_gpu_rotations;
     };
 }

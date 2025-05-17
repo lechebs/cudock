@@ -90,6 +90,11 @@ namespace cuDock
         return _atoms;
     }
 
+    int Ligand::get_num_atoms() const
+    {
+        return _atoms.size();
+    }
+
     float Ligand::get_radius() const
     {
         return _radius;

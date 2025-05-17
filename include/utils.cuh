@@ -37,12 +37,3 @@ template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
     cudaEventElapsedTime(&ms, start, stop);
     std::cout << "[" << tag << "] elapsed: " << ms << "ms" << std::endl;
 }
-
-inline void aos_to_soa(vec3 *aos, float *dst[], int size)
-{
-    for (int i = 0; i < size; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            dst[j][i] = aos[i][j];
-        }
-    }
-}
