@@ -38,6 +38,8 @@ namespace cuDock
         const std::array<cudaTextureObject_t, NUM_CHANNELS>
         &get_gpu_tmem_voxels() const;
 
+        float get_cell_size() const;
+
         unsigned int get_size() const;
 
         unsigned int get_shape(int cartesian_axis) const;

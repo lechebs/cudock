@@ -13,9 +13,9 @@ namespace
         for (int i = 0; i < num_buffers; ++i) {
             CUDA_CHECK_ERR(cudaMalloc(&dst[i], sizeof(float) * size));
             CUDA_CHECK_ERR(cudaMemcpy(dst[i],
-                           src[i],
-                           sizeof(float) * size,
-                           cudaMemcpyHostToDevice));
+                                      src[i],
+                                      sizeof(float) * size,
+                                      cudaMemcpyHostToDevice));
         }
     }
 

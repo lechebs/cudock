@@ -30,6 +30,11 @@ namespace cuDock
         _voxelize(pocket_points);
     }
 
+    float Pocket::get_cell_size() const
+    {
+        return _cell_size;
+    }
+
     unsigned int Pocket::get_size() const
     {
         unsigned int size = 1;

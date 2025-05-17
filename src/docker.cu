@@ -12,6 +12,7 @@
 namespace
 {
     __constant__ struct cuDock::Ligand::GPUData _gpu_ligand_data;
+    __constant__ float *_gpu_gmem_voxels[cuDock::Pocket::NUM_CHANNELS];
 
     __device__ void _compute_rot_mat(float3 r, float mat[])
     {
@@ -48,11 +49,12 @@ namespace
         dst.z = r_mat[6] * x + r_mat[7] * y + r_mat[8] * z + t.z;
     }
 
-    __global__ void _score_gmem(const float * const voxels[],
+    __global__ void _score_gmem(float grid_cell_size,
+                                int grid_width,
+                                int grid_height,
                                 int num_channels,
                                 const float3 *translations,
                                 const float3 *rotations,
-                                int num_poses,
                                 int num_atoms,
                                 int block_size)
     {
@@ -63,13 +65,35 @@ namespace
         float r_mat[9];
         _compute_rot_mat(r, r_mat);
 
-        for (int i = 0; i < num_atoms; i += block_size) {
-            float x = _gpu_ligand_data.atoms_x[threadIdx.x];
-            float y = _gpu_ligand_data.atoms_y[threadIdx.x];
-            float z = _gpu_ligand_data.atoms_z[threadIdx.x];
+        for (int idx = threadIdx.x; idx < num_atoms; idx += block_size) {
+            float x = _gpu_ligand_data.atoms_x[idx];
+            float y = _gpu_ligand_data.atoms_y[idx];
+            float z = _gpu_ligand_data.atoms_z[idx];
 
             float3 pos;
             _transform_atom_pos(x, y, z, t, r_mat, pos);
+
+            int i = pos.x / grid_cell_size;
+            int j = pos.y / grid_cell_size;
+            int k = pos.z / grid_cell_size;
+
+            int grid_idx = k * grid_width * grid_height + j * grid_width + i;
+
+            float val = 0.0;
+            for (int c = 0; c < num_channels; ++c) {
+                val += _gpu_gmem_voxels[c][grid_idx];
+            }
+
+            if (threadIdx.x == 0) {
+                printf("[%02d:%02d] x=%.2f y=%.2f z=%.2f idx=%d val=%.2f\n",
+                       blockIdx.x,
+                       threadIdx.x,
+                       pos.x,
+                       pos.y,
+                       pos.z,
+                       grid_idx,
+                       val);
+            }
         }
     }
 
@@ -77,14 +101,9 @@ namespace
                                 int num_textures,
                                 const float3 *translations,
                                 const float3 *rotations,
-                                int num_poses,
                                 int num_atoms,
                                 int block_size)
     {
-        int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx > num_poses) {
-            return;
-        }
     }
 }
 
@@ -148,6 +167,14 @@ namespace cuDock
         CUDA_CHECK_ERR(cudaMemcpyToSymbol(_gpu_ligand_data,
                                           &ligand_data,
                                           sizeof(struct Ligand::GPUData)));
+
+        // Copy pocket voxels pointers to constant memory
+
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(
+            _gpu_gmem_voxels,
+            _pocket.get_gpu_gmem_voxels().data(),
+            sizeof(float *) * Pocket::NUM_CHANNELS));
+
     }
 
     void Docker::off_gpu()
@@ -165,14 +192,16 @@ namespace cuDock
         int block_size = num_atoms / WARP_SIZE * WARP_SIZE;
 
         if (_pocket.is_on_gpu(GPU_GMEM)) {
+
             CUDA_TIME_EXEC("_score_gmem", [&](){
                 _score_gmem<<<
                     num_poses,
-                    block_size>>>(_pocket.get_gpu_gmem_voxels().data(),
+                    block_size>>>(_pocket.get_cell_size(),
+                                  _pocket.get_shape(0),
+                                  _pocket.get_shape(1),
                                   Pocket::NUM_CHANNELS,
                                   _gpu_translations,
                                   _gpu_rotations,
-                                  num_poses,
                                   num_atoms,
                                   block_size);
             });
@@ -184,7 +213,6 @@ namespace cuDock
                                   Pocket::NUM_CHANNELS,
                                   _gpu_translations,
                                   _gpu_rotations,
-                                  num_poses,
                                   num_atoms,
                                   block_size);
             });
