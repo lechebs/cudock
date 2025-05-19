@@ -19,7 +19,9 @@ namespace cuDock
             float atoms_x[MAX_NUM_ATOMS];
             float atoms_y[MAX_NUM_ATOMS];
             float atoms_z[MAX_NUM_ATOMS];
-            unsigned int atom_type[MAX_NUM_ATOMS];
+            float atoms_mass[MAX_NUM_ATOMS];
+            // unsigned int atom_type[MAX_NUM_ATOMS];
+            unsigned int atoms_channel_mask[MAX_NUM_ATOMS];
         };
 
         struct Atom

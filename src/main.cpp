@@ -23,13 +23,13 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     Pocket pocket(points, 2.0);
     Ligand ligand(atoms);
 
-    pocket.to_gpu(GPU_GMEM);
-
     Docker docker(pocket, ligand);
+    docker.generate_random_poses(1);
 
-    docker.generate_random_poses(1000);
+    docker.run();
+
+    pocket.to_gpu(GPU_TMEM);
     docker.to_gpu();
-
     docker.run();
 
     return EXIT_SUCCESS;

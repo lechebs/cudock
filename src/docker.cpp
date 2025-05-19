@@ -57,7 +57,7 @@ namespace cuDock
     {
         float sina = std::sin(angles[0]);
         float cosa = std::cos(angles[0]);
-        float sinb = std::cos(angles[1]);
+        float sinb = std::sin(angles[1]);
         float cosb = std::cos(angles[1]);
         float sinc = std::sin(angles[2]);
         float cosc = std::cos(angles[2]);
@@ -104,7 +104,7 @@ namespace cuDock
 
                 vec3 pos;
                 _rotate(atom.pos, _rotations[i], pos);
-                _translate(atom.pos, _translations[i], pos);
+                _translate(pos, _translations[i], pos);
 
                 std::array<float, Pocket::NUM_CHANNELS> values;
                 _pocket.lookup(pos, values);
