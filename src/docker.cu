@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <vector>
+#include <cmath>
 
 #include "ligand.hpp"
 #include "utils.cuh"
@@ -98,20 +99,13 @@ namespace
                 val += _gpu_gmem_voxels[c][grid_idx];
             }
 
-            if (threadIdx.x == 0) {
-                printf("[%02d:%02d] x=%.2f y=%.2f z=%.2f idx=%d val=%.2f\n",
-                       blockIdx.x,
-                       threadIdx.x,
-                       pos.x,
-                       pos.y,
-                       pos.z,
-                       grid_idx,
-                       val);
+            if (block_size == 1) {
+                printf("%f\n", val);
             }
         }
     }
 
-    __global__ void _score_tmem(float3 domain_size,
+    __global__ void _score_tmem(float grid_cell_size,
                                 int num_channels,
                                 const float3 *translations,
                                 const float3 *rotations,
@@ -129,15 +123,20 @@ namespace
             _transform_atom_pos(pos.x, pos.y, pos.z, t, r_mat, pos);
 
             // Texture coordinates are normalized
-            float tx = pos.x / domain_size.x;
-            float ty = pos.y / domain_size.y;
-            float tz = pos.z / domain_size.z;
+            float tx = floorf(pos.x / grid_cell_size);
+            float ty = floorf(pos.y / grid_cell_size);
+            float tz = floorf(pos.z / grid_cell_size);
 
             float val = 0.0;
             for (int c = 0; c < num_channels; ++c) {
                 val += tex3D<float>(_gpu_tmem_voxels[c], tx, ty, tz);
             }
 
+            if (block_size == 1) {
+                printf("%f\n", val);
+            }
+
+            /*
             if (threadIdx.x == 0) {
                 printf("[%02d:%02d] x=%.2f y=%.2f z=%.2f val=%.2f\n",
                        blockIdx.x,
@@ -147,7 +146,7 @@ namespace
                        pos.z,
                        val);
             }
-
+            */
         }
     }
 }
@@ -214,22 +213,7 @@ namespace cuDock
 
         CUDA_CHECK_ERR(cudaMemcpyToSymbol(_gpu_ligand_data,
                                           &ligand_data,
-                                          sizeof(struct Ligand::GPUData)));
-
-        // Copy pocket voxels gmem pointers to constant memory
-
-        CUDA_CHECK_ERR(cudaMemcpyToSymbol(
-            _gpu_gmem_voxels,
-            _pocket.get_gpu_gmem_voxels().data(),
-            sizeof(float *) * Pocket::NUM_CHANNELS));
-
-        // Copy pocket voxels tmem pointers to constant memory
-
-        CUDA_CHECK_ERR(cudaMemcpyToSymbol(
-            _gpu_tmem_voxels,
-            _pocket.get_gpu_tmem_voxels().data(),
-            sizeof(cudaTextureObject_t) * Pocket::NUM_CHANNELS));
-
+                                          sizeof(struct Ligand::GPUData))); 
     }
 
     void Docker::off_gpu()
@@ -243,8 +227,22 @@ namespace cuDock
 
     void Docker::_score_poses_gpu(int num_poses)
     {
+        if (_pocket.is_on_gpu(GPU_GMEM)) {
+            // Copy pocket voxels gmem pointers to constant memory
+            CUDA_CHECK_ERR(cudaMemcpyToSymbol(
+                _gpu_gmem_voxels,
+                _pocket.get_gpu_gmem_voxels().data(),
+                sizeof(float *) * Pocket::NUM_CHANNELS));
+        } else {
+            // Copy pocket voxels tmem pointers to constant memory
+            CUDA_CHECK_ERR(cudaMemcpyToSymbol(
+                _gpu_tmem_voxels,
+                _pocket.get_gpu_tmem_voxels().data(),
+                sizeof(cudaTextureObject_t) * Pocket::NUM_CHANNELS));
+        }
+
         int num_atoms = _ligand.get_num_atoms();
-        int block_size = num_atoms / WARP_SIZE * WARP_SIZE;
+        int block_size = std::ceil(num_atoms / WARP_SIZE) * WARP_SIZE;
 
         if (_pocket.is_on_gpu(GPU_GMEM)) {
 
@@ -264,9 +262,7 @@ namespace cuDock
             CUDA_TIME_EXEC("_score_tmem", [&](){
                 _score_tmem<<<
                     num_poses,
-                    block_size>>>({ _pocket.get_domain_size(0),
-                                    _pocket.get_domain_size(1),
-                                    _pocket.get_domain_size(2) },
+                    block_size>>>(_pocket.get_cell_size(),
                                   Pocket::NUM_CHANNELS,
                                   _gpu_translations,
                                   _gpu_rotations,

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <iostream>
+#include <vector>
 #include <cstring>
+#include <cmath>
 
 #include "vec3.hpp"
 
@@ -20,20 +22,53 @@
 enum GPUMemType { GPU_GMEM, GPU_TMEM };
 
 template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
-                                         const T &launch_kernel)
+                                         const T &launch_kernel,
+                                         int num_launches = 10)
 {
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-    cudaEventRecord(start);
-    launch_kernel();
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
+    std::vector<float> elapsed;
+    elapsed.reserve(num_launches);
+
+    // Warm-up launches
+    for (int i = 0; i < 5; ++i) {
+        launch_kernel();
+    }
+
+    for (int i = 0; i < num_launches; ++i) {
+
+        cudaEventRecord(start);
+        launch_kernel();
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+
+        float ms;
+        cudaEventElapsedTime(&ms, start, stop);
+
+        elapsed.push_back(ms);
+    }
 
     CUDA_CHECK_ERR(cudaGetLastError());
 
-    float ms;
-    cudaEventElapsedTime(&ms, start, stop);
-    std::cout << "[" << tag << "] elapsed: " << ms << "ms" << std::endl;
+    float elapsed_mean = 0.0;
+    for (float ms : elapsed) {
+        elapsed_mean += ms;
+    }
+    elapsed_mean /= num_launches;
+
+    float elapsed_std = 0.0;
+    for (float ms : elapsed) {
+        float diff = ms - elapsed_mean;
+        elapsed_std += diff * diff;
+    }
+    elapsed_std /= num_launches - (num_launches > 1 ? 1 : 0);
+    elapsed_std = std::sqrt(elapsed_std);
+
+    printf("[%s] launches=%d, mean=%.6f, std=%.6f\n",
+           tag.c_str(),
+           num_launches,
+           elapsed_mean,
+           elapsed_std);
 }

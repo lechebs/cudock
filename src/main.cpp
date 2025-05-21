@@ -20,16 +20,22 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<Ligand::Atom> atoms;
     Parsing::read_ligand_mol2(ligand_file_path, atoms);
 
-    Pocket pocket(points, 2.0);
+    Pocket pocket(points, 1.0);
     Ligand ligand(atoms);
 
-    Docker docker(pocket, ligand);
-    docker.generate_random_poses(1);
+    const int num_poses = 2 << 17;
 
+    std::cout << "num_poses=" << num_poses << std::endl;
+
+    Docker docker(pocket, ligand);
+    docker.generate_random_poses(num_poses);
+
+    pocket.to_gpu(GPU_GMEM);
+    docker.to_gpu();
     docker.run();
 
+    pocket.off_gpu(GPU_GMEM);
     pocket.to_gpu(GPU_TMEM);
-    docker.to_gpu();
     docker.run();
 
     return EXIT_SUCCESS;
