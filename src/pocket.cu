@@ -41,14 +41,11 @@ namespace
         cudaExtent extent = make_cudaExtent(width, height, depth);
 
         cudaTextureDesc tex_desc = {};
-        tex_desc.addressMode[0] = cudaAddressModeBorder;
-        tex_desc.addressMode[1] = cudaAddressModeBorder;
-        tex_desc.addressMode[2] = cudaAddressModeBorder;
+        tex_desc.addressMode[0] = cudaAddressModeClamp;
+        tex_desc.addressMode[1] = cudaAddressModeClamp;
+        tex_desc.addressMode[2] = cudaAddressModeClamp;
         //tex_desc.normalizedCoords = false;
         tex_desc.filterMode = cudaFilterModePoint;
-        tex_desc.borderColor[0] = 0.0;
-        tex_desc.borderColor[1] = 0.0;
-        tex_desc.borderColor[2] = 0.0;
         //tex_desc.disableTrilinearOptimization = true;
 
         cudaResourceViewDesc view_desc = {};

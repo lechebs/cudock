@@ -19,3 +19,11 @@ $ cmake --install ./build
 After issuing all the commands, you will have the executable in the `bin` folder inside the repository.
 The install command is actually optional.
 If you omit the command, you will have the executable in `build/src` folder.
+
+## TODO
+ - channel packing (both texture and global)
+ - half precision (possibly with tensor cores reduction?)
+ - software interpolation on global memory (morton order?)
+
+ - introduce divergence to conditionally fetch based on the atom type
+   consider sorting atoms by type to reduce divergence

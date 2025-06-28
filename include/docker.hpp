@@ -22,14 +22,29 @@ namespace cuDock
 
         void run();
 
-        const std::vector<float> &get_scores();
+        void get_scores(std::vector<float> &dst) const;
 
         ~Docker();
 
-    private:
-        static void _rotate(vec3 pos, const vec3 &angles, vec3 &dst);
-        static void _translate(vec3 pos, const vec3 &delta, vec3 &dst);
+        static __device__ __host__
+        void compute_rot_mat(float rx,
+                             float ry,
+                             float rz,
+                             float mat[]);
 
+        static __device__ __host__
+        void transform_atom_pos(float x,
+                                float y,
+                                float z,
+                                float tx,
+                                float ty,
+                                float tz,
+                                const float mat[],
+                                float &x_dst,
+                                float &y_dst,
+                                float &z_dst);
+
+    private:
         void _reinit_buffers(int num_poses);
         void _score_poses(int num_poses);
 
@@ -49,5 +64,6 @@ namespace cuDock
 
         float3 *_gpu_translations;
         float3 *_gpu_rotations;
+        float *_gpu_scores;
     };
 }

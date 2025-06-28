@@ -97,6 +97,8 @@ target_link_libraries(main CUDA::cudart_static)
 target_compile_options(main PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
                        -arch=compute_89
                        -code=sm_89
+                       -fmad=false
+                       -use_fast_math
                        >)
 
 #########################################################################

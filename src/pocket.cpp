@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <iomanip>
+#include <cassert>
 
 #include "parsing.hpp"
 #include "vec3.hpp"
@@ -108,6 +109,10 @@ namespace cuDock
                                      unsigned int j,
                                      unsigned int k) const
     {
+        assert(i < _shape[0]);
+        assert(j < _shape[1]);
+        assert(k < _shape[2]);
+
         return i * _shape[1] * _shape[2] +
                j * _shape[2] + k;
     }
@@ -115,8 +120,17 @@ namespace cuDock
     void Pocket::_pos_to_sub(const vec3 &pos, vec3ui &sub) const
     {
         for (int i = 0; i < 3; ++i) {
-            sub[i] = static_cast<unsigned int>(
-                std::floor(pos[2 - i] / _cell_size));
+            if (pos[2 - i] > _domain_size[i]) {
+                std::cout << pos[2 - i] << ", "
+                          << _domain_size[i] << std::endl;
+            }
+
+            assert(pos[2 - i] <= _domain_size[i]);
+
+            sub[i] = pos[2 - i] / _cell_size;
+            if (sub[i] == _shape[i]) {
+                sub[i] -= 1;
+            }
         }
     }
 

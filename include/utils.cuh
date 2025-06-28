@@ -23,7 +23,8 @@ enum GPUMemType { GPU_GMEM, GPU_TMEM };
 
 template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
                                          const T &launch_kernel,
-                                         int num_launches = 10)
+                                         int num_launches = 1,
+                                         int num_warmup = 0)
 {
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
@@ -33,7 +34,7 @@ template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
     elapsed.reserve(num_launches);
 
     // Warm-up launches
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < num_warmup; ++i) {
         launch_kernel();
     }
 
