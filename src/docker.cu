@@ -6,8 +6,9 @@
 #include <algorithm>
 #include <type_traits>
 
-#include "ligand.hpp"
 #include "utils.cuh"
+#include "swizzling.cuh"
+#include "ligand.hpp"
 
 #define WARP_SIZE 32
 #define BLOCK_SIZE 128
@@ -100,6 +101,42 @@ namespace
         return score;
     }
 
+    __device__ __inline__
+    float score_pose_gmem_swizzled(float3 pos,
+                                   float grid_cell_size,
+                                   int grid_height,
+                                   int grid_width,
+                                   unsigned int mask,
+                                   int num_channels)
+    {
+        float score = 0;
+        // Computing lookup coordinates
+        int i = pos.x / grid_cell_size;
+        int j = pos.y / grid_cell_size;
+        int k = pos.z / grid_cell_size;
+
+        int tile_size_in_bits = 5;
+        int padded_width = grid_width + cuDock::Swizzling::
+                                        get_padding_size(grid_width,
+                                                         tile_size_in_bits);
+        int padded_height = grid_height + cuDock::Swizzling::
+                                          get_padding_size(grid_height,
+                                                           tile_size_in_bits);
+        int idx = cuDock::Swizzling::get_swizzled_idx(i,
+                                                      j,
+                                                      k,
+                                                      padded_width,
+                                                      padded_height,
+                                                      tile_size_in_bits);
+
+        for (int c = 0; c < num_channels; ++c) {
+            score += _gpu_gmem_voxels[c][idx] * (mask & 1);
+            mask >>= 1;
+        }
+
+        return score;
+    }
+
     __device__ __inline__ float score_pose_tmem(float3 pos,
                                                 float grid_cell_size,
                                                 unsigned int mask,
@@ -162,7 +199,16 @@ namespace
                                          grid_width,
                                          mask,
                                          num_channels);
-            } else {
+
+            } else if (mem_type == GPU_GMEM_SWIZZLED) {
+                score += score_pose_gmem_swizzled(pos,
+                                                  grid_cell_size,
+                                                  grid_height,
+                                                  grid_width,
+                                                  mask,
+                                                  num_channels);
+
+            } else if (mem_type == GPU_TMEM) {
                 score += score_pose_tmem(pos,
                                          grid_cell_size,
                                          mask,
@@ -175,7 +221,6 @@ namespace
 
         if (threadIdx.x == 0) {
             scores[blockIdx.x] = score;
-            //printf("%d %f\n", blockIdx.x, score);
         }
     }
 }
@@ -316,7 +361,8 @@ namespace cuDock
 
     void Docker::_score_poses_gpu(int num_poses)
     {
-        if (_pocket.is_on_gpu(GPU_GMEM)) {
+        if (_pocket.is_on_gpu(GPU_GMEM) ||
+            _pocket.is_on_gpu(GPU_GMEM_SWIZZLED)) {
             // Copy pocket voxels gmem pointers to constant memory
             CUDA_CHECK_ERR(cudaMemcpyToSymbol(
                 _gpu_gmem_voxels,
@@ -348,6 +394,21 @@ namespace cuDock
                                   block_size,
                                   GPU_GMEM);
             });
+        } else if (_pocket.is_on_gpu(GPU_GMEM_SWIZZLED)) {
+            CUDA_TIME_EXEC("_score_gmem_swizzled", [&](){
+                score_poses<<<
+                    num_poses,
+                    block_size>>>(_pocket.get_cell_size(),
+                                  _pocket.get_shape(0),
+                                  _pocket.get_shape(1),
+                                  Pocket::NUM_CHANNELS,
+                                  _gpu_translations,
+                                  _gpu_rotations,
+                                  _gpu_scores,
+                                  num_atoms,
+                                  block_size,
+                                  GPU_GMEM_SWIZZLED);
+            });
         } else {
             CUDA_TIME_EXEC("_score_tmem", [&](){
                 score_poses<<<
@@ -363,6 +424,7 @@ namespace cuDock
                                   block_size,
                                   GPU_TMEM);
             });
+
         }
     }
 }

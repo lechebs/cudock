@@ -1,10 +1,14 @@
 #include "pocket.hpp"
 
 #include <iostream>
+#include <vector>
+#include <algorithm>
 
 #include <cuda_runtime_api.h>
 
 #include "utils.cuh"
+#include "swizzling.cuh"
+#include "docker.hpp"
 
 namespace
 {
@@ -90,7 +94,9 @@ namespace cuDock
 {
     bool Pocket::is_on_gpu() const
     {
-        return _is_on_gpu[GPU_GMEM] || _is_on_gpu[GPU_TMEM];
+        return _is_on_gpu[GPU_GMEM] ||
+               _is_on_gpu[GPU_GMEM_SWIZZLED] ||
+               _is_on_gpu[GPU_TMEM];
     }
 
     bool Pocket::is_on_gpu(enum GPUMemType mem_type) const
@@ -108,6 +114,38 @@ namespace cuDock
                               _gpu_global_voxels.data(),
                               get_size(),
                               NUM_CHANNELS);
+
+            } else if (mem_type == GPU_GMEM_SWIZZLED) {
+
+                int w = get_shape(0);
+                int h = get_shape(1);
+                int d = get_shape(2);
+
+                int tile_size_in_bits = 5;
+                int swizzled_size =
+                    Swizzling::get_swizzled_size(w, h, d, tile_size_in_bits);
+
+                std::array<float *, NUM_CHANNELS> voxels_swizzled;
+                for (int c = 0; c < NUM_CHANNELS; ++c) {
+                    voxels_swizzled[c] = new float[swizzled_size];
+                    Swizzling::
+                    to_swizzled_format(w,
+                                       h,
+                                       d,
+                                       tile_size_in_bits,
+                                       _voxels[c],
+                                       voxels_swizzled[c]);
+                }
+
+                _alloc_global(voxels_swizzled.data(),
+                              _gpu_global_voxels.data(),
+                              swizzled_size,
+                              NUM_CHANNELS);
+
+                for (int c = 0; c < NUM_CHANNELS; ++c) {
+                    delete[] voxels_swizzled[c];
+                }
+
             } else if (mem_type == GPU_TMEM) {
                 _alloc_textures(_voxels.data(),
                                 _gpu_array_voxels.data(),
@@ -126,7 +164,7 @@ namespace cuDock
         if (_is_on_gpu[mem_type]) {
             _is_on_gpu[mem_type] = false;
 
-            if (mem_type == GPU_GMEM) {
+            if (mem_type == GPU_GMEM|| mem_type == GPU_GMEM_SWIZZLED) {
                 _free_global(_gpu_global_voxels.data(), NUM_CHANNELS);
             } else if (mem_type == GPU_TMEM) {
                 _free_textures(_gpu_array_voxels.data(),

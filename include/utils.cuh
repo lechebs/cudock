@@ -19,7 +19,7 @@
     }                                                       \
 }
 
-enum GPUMemType { GPU_GMEM, GPU_TMEM };
+enum GPUMemType { GPU_GMEM, GPU_GMEM_SWIZZLED, GPU_TMEM };
 
 template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
                                          const T &launch_kernel,

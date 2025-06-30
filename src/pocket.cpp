@@ -89,6 +89,7 @@ namespace cuDock
         }
 
         off_gpu(GPU_GMEM);
+        off_gpu(GPU_GMEM_SWIZZLED);
         off_gpu(GPU_TMEM);
     }
 

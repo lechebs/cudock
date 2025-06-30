@@ -60,6 +60,7 @@ list(APPEND header_files
   "${header_path}/pocket.hpp"
   "${header_path}/ligand.hpp"
   "${header_path}/docker.hpp"
+  "${header_path}/swizzling.cuh"
 )
 
 # sources
@@ -71,6 +72,7 @@ list(APPEND source_files
   "${source_path}/ligand.cpp"
   "${source_path}/docker.cpp"
   "${source_path}/docker.cu"
+  "${source_path}/swizzling.cu"
   "${source_path}/main.cpp"
 )
 
@@ -88,6 +90,7 @@ set_target_properties(main
       CXX_EXTENSIONS OFF
       CUDA_STANDARD 17
       CUDA_STANDARD_REQUIRED ON
+      CUDA_SEPARABLE_COMPILATION ON
   )
 
 # add the dependencies
@@ -95,8 +98,7 @@ target_link_libraries(main CUDA::cudart_static)
 
 # set nvcc flags
 target_compile_options(main PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-                       -arch=compute_89
-                       -code=sm_89
+                       -gencode=arch=compute_89,code=[sm_89,compute_89]
                        -fmad=false
                        -use_fast_math
                        >)

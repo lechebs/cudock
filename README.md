@@ -21,9 +21,17 @@ The install command is actually optional.
 If you omit the command, you will have the executable in `build/src` folder.
 
 ## TODO
- - channel packing (both texture and global)
+ - custom software swizzling in global memory
+ - evaluate __ldg on global memory
+ - channel packing (e.g. two float4 textures and global "float8")
+ - software interpolation on global memory
  - half precision (possibly with tensor cores reduction?)
- - software interpolation on global memory (morton order?)
 
+ - precompute interaction for all atom types
+ - sort atoms based on morton order to increase spatial locality within a warp
+  (maybe more relevant for bigger ligands)
  - introduce divergence to conditionally fetch based on the atom type
    consider sorting atoms by type to reduce divergence
+ - predicated execution may cause texture fetches even when guarded by conditionals,
+   so perhaps the only way is to group same atom types in the same warp, sorting around
+   stuff will then be needed

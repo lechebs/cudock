@@ -81,7 +81,7 @@ namespace cuDock
         std::array<cudaArray_t, NUM_CHANNELS> _gpu_array_voxels;
         std::array<cudaTextureObject_t, NUM_CHANNELS> _gpu_texture_voxels;
 
-        std::array<bool, 2> _is_on_gpu = { 0, 0 };
+        std::array<bool, 3> _is_on_gpu = { 0, 0, 0 };
     };
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);

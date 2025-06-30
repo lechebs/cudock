@@ -20,12 +20,20 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<Ligand::Atom> atoms;
     Parsing::read_ligand_mol2(ligand_file_path, atoms);
 
-    Pocket pocket(points, 1.0);
+    Pocket pocket(points, 0.2);
     Ligand ligand(atoms);
 
-    const int num_poses = 2 << 15;
+    const int num_poses = 1 << 20;
 
     std::cout << "num_poses=" << num_poses << std::endl;
+    std::cout << "domain=(" << pocket.get_domain_size(0) 
+              << ", " << pocket.get_domain_size(1)
+              << ", " << pocket.get_domain_size(2)
+              << ")" << std::endl;
+    std::cout << "shape=(" << pocket.get_shape(0) 
+              << ", " << pocket.get_shape(1)
+              << ", " << pocket.get_shape(2)
+              << ")" << std::endl;
 
     Docker docker(pocket, ligand);
     docker.generate_random_poses(num_poses);
@@ -34,19 +42,30 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<float> gpu_gmem_scores;
     std::vector<float> gpu_tmem_scores;
 
+    /*
     docker.run();
     docker.get_scores(cpu_scores);
-
-    pocket.to_gpu(GPU_GMEM);
     docker.to_gpu();
+    */
+
+    docker.to_gpu();
+
+    pocket.to_gpu(GPU_TMEM);
+    docker.run();
+
+    /*
+    pocket.off_gpu(GPU_GMEM);
+    pocket.to_gpu(GPU_GMEM_SWIZZLED);
     docker.run();
     docker.get_scores(gpu_gmem_scores);
 
-    pocket.off_gpu(GPU_GMEM);
+    pocket.off_gpu(GPU_GMEM_SWIZZLED);
     pocket.to_gpu(GPU_TMEM);
     docker.run();
     docker.get_scores(gpu_tmem_scores);
+    */
 
+    /*
     std::cout << std::fixed;
 
     // Validate results
@@ -65,10 +84,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
         if (std::abs(cpu_score - gpu_tmem_score) > 1e-4f) {
             std::cout << "[TMEM] WARNING: incorrect score at pose "
                       << i << " ("
-                      << "GPU: " << cpu_score << ", GPU: "
+                      << "CPU: " << cpu_score << ", GPU: "
                       << gpu_tmem_score << ")" << std::endl;
         }
     }
+    */
 
     return EXIT_SUCCESS;
 }
