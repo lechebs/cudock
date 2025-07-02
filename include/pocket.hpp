@@ -33,6 +33,9 @@ namespace cuDock
         bool is_on_gpu() const;
         bool is_on_gpu(enum GPUMemType mem_type) const;
 
+        void set_interpolate(enum InterpolateType int_type);
+        enum InterpolateType get_interpolate() const;
+
         const std::array<float *, NUM_CHANNELS> &get_gpu_gmem_voxels() const;
 
         const std::array<cudaTextureObject_t, NUM_CHANNELS>
@@ -82,6 +85,8 @@ namespace cuDock
         std::array<cudaTextureObject_t, NUM_CHANNELS> _gpu_texture_voxels;
 
         std::array<bool, 3> _is_on_gpu = { 0, 0, 0 };
+
+        enum InterpolateType int_type_ = NN_INTERPOLATE;
     };
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);

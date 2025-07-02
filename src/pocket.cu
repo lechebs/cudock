@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 
+#include <cuda.h>
 #include <cuda_runtime_api.h>
 
 #include "utils.cuh"
@@ -15,7 +16,7 @@ namespace
     void _alloc_global(float *src[], float *dst[], int size, int num_buffers)
     {
         for (int i = 0; i < num_buffers; ++i) {
-            CUDA_CHECK_ERR(cudaMalloc(&dst[i], sizeof(float) * size));
+            //CUDA_CHECK_ERR(cudaMalloc(&dst[i], sizeof(float) * size));
             CUDA_CHECK_ERR(cudaMemcpy(dst[i],
                                       src[i],
                                       sizeof(float) * size,
@@ -36,7 +37,8 @@ namespace
                          int num_textures,
                          int width,
                          int height,
-                         int depth)
+                         int depth,
+                         bool lerp)
     {
         cudaResourceDesc res_desc = {};
         res_desc.resType = cudaResourceTypeArray;
@@ -49,7 +51,8 @@ namespace
         tex_desc.addressMode[1] = cudaAddressModeClamp;
         tex_desc.addressMode[2] = cudaAddressModeClamp;
         //tex_desc.normalizedCoords = false;
-        tex_desc.filterMode = cudaFilterModePoint;
+        tex_desc.filterMode = lerp ? cudaFilterModeLinear :
+                                     cudaFilterModePoint;
         //tex_desc.disableTrilinearOptimization = true;
 
         cudaResourceViewDesc view_desc = {};
@@ -121,9 +124,61 @@ namespace cuDock
                 int h = get_shape(1);
                 int d = get_shape(2);
 
-                int tile_size_in_bits = 5;
+                // TODO: make parameter
+                int tile_size_in_bits = 4;
                 int swizzled_size =
                     Swizzling::get_swizzled_size(w, h, d, tile_size_in_bits);
+
+                // Testing compressible memory
+                for (int c = 0; c < NUM_CHANNELS; ++c) {
+
+                CUmemAllocationProp prop = {};
+                prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+                prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+                prop.location.id = 0;
+                prop.allocFlags.compressionType =
+                    CU_MEM_ALLOCATION_COMP_GENERIC;
+
+                size_t granularity = 0;
+                CUresult res = cuMemGetAllocationGranularity(
+                    &granularity,
+                    &prop,
+                    CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+                std::cout << "cuMemGetAllocationGranularity: " << res << std::endl;
+
+                size_t size = sizeof(float) * swizzled_size;
+                size_t padded_size = ((size - 1) / granularity + 1) *
+                                     granularity;
+
+                CUmemGenericAllocationHandle allocHandle;
+                res = cuMemCreate(&allocHandle, padded_size, &prop, 0);
+                std::cout << "cuMemCreate: " << res << std::endl;
+
+                cuMemGetAllocationPropertiesFromHandle(&prop,
+                                                       allocHandle);
+
+                if (prop.allocFlags.compressionType ==
+                    CU_MEM_ALLOCATION_COMP_GENERIC)
+                {
+                    std::cout << "Obtained compressible memory" << std::endl;
+                }
+
+                CUdeviceptr ptr;
+                res = cuMemAddressReserve(&ptr, padded_size, 0, 0, 0);
+                std::cout << "cuMemAddressReserve: " << res << std::endl;
+
+                res = cuMemMap(ptr, padded_size, 0, allocHandle, 0);
+                std::cout << "cuMemMap: " << res << std::endl;
+
+                // Make the address accessible
+                CUmemAccessDesc accessDesc = {};
+                accessDesc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+                accessDesc.location.id = 0;
+                accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+
+                cuMemSetAccess(ptr, padded_size, &accessDesc, 1);
+                _gpu_global_voxels[c] = (float *) ptr;
+                }
 
                 std::array<float *, NUM_CHANNELS> voxels_swizzled;
                 for (int c = 0; c < NUM_CHANNELS; ++c) {
@@ -153,7 +208,8 @@ namespace cuDock
                                 NUM_CHANNELS,
                                 get_shape(0),
                                 get_shape(1),
-                                get_shape(2));
+                                get_shape(2),
+                                get_interpolate() == LIN_INTERPOLATE);
             }
         }
 

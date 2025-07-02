@@ -31,6 +31,16 @@ namespace cuDock
         _voxelize(pocket_points);
     }
 
+    void Pocket::set_interpolate(enum InterpolateType int_type)
+    {
+        int_type_ = int_type;
+    }
+
+    enum InterpolateType Pocket::get_interpolate() const
+    {
+        return int_type_;
+    }
+
     float Pocket::get_cell_size() const
     {
         return _cell_size;

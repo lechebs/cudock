@@ -16,13 +16,24 @@
 namespace
 {
     __constant__
-    struct cuDock::Ligand::GPUData _gpu_ligand_data;
+    struct cuDock::Ligand::GPUData GPU_LIGAND_DATA;
 
     __constant__
-    float *_gpu_gmem_voxels[cuDock::Pocket::NUM_CHANNELS];
+    float * __restrict__ GPU_GMEM_VOXELS[cuDock::Pocket::NUM_CHANNELS];
 
     __constant__
-    cudaTextureObject_t _gpu_tmem_voxels[cuDock::Pocket::NUM_CHANNELS];
+    cudaTextureObject_t GPU_TMEM_VOXELS[cuDock::Pocket::NUM_CHANNELS];
+
+    __constant__ int NUM_CHANNELS;
+
+    __constant__ int GRID_WIDTH;
+    __constant__ int GRID_HEIGHT;
+    __constant__ int GRID_DEPTH;
+    __constant__ float GRID_CELL_SIZE;
+
+    __constant__ int SWIZZLED_PADDED_WIDTH;
+    __constant__ int SWIZZLED_PADDED_HEIGHT;
+    __constant__ int SWIZZLED_TILE_SIZE_IN_BITS;
 
     __device__ __inline__ float warp_reduce(float value)
     {
@@ -70,86 +81,267 @@ namespace
     __device__ __inline__ float3 _get_atom_pos(int idx)
     {
         float3 pos = {
-            _gpu_ligand_data.atoms_x[idx],
-            _gpu_ligand_data.atoms_y[idx],
-            _gpu_ligand_data.atoms_z[idx]
+            GPU_LIGAND_DATA.atoms_x[idx],
+            GPU_LIGAND_DATA.atoms_y[idx],
+            GPU_LIGAND_DATA.atoms_z[idx]
         };
 
         return pos;
     }
 
     __device__ __inline__ float score_pose_gmem(float3 pos,
-                                                float grid_cell_size,
-                                                int grid_width,
-                                                int grid_height,
-                                                unsigned int mask,
-                                                int num_channels)
+                                                unsigned int mask)
     {
         float score = 0;
-        // Computing lookup coordinates
-        int i = pos.x / grid_cell_size;
-        int j = pos.y / grid_cell_size;
-        int k = pos.z / grid_cell_size;
 
-        int grid_idx = k * grid_width * grid_height + j * grid_width + i;
+        int i = pos.x / GRID_CELL_SIZE;
+        int j = pos.y / GRID_CELL_SIZE;
+        int k = pos.z / GRID_CELL_SIZE;
 
-        for (int c = 0; c < num_channels; ++c) {
-            score += _gpu_gmem_voxels[c][grid_idx] * (mask & 1);
+        int grid_idx = k * GRID_WIDTH * GRID_HEIGHT + j * GRID_WIDTH + i;
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            score += GPU_GMEM_VOXELS[c][grid_idx] * (mask & 1);
             mask >>= 1;
         }
 
         return score;
     }
 
-    __device__ __inline__
-    float score_pose_gmem_swizzled(float3 pos,
-                                   float grid_cell_size,
-                                   int grid_height,
-                                   int grid_width,
-                                   unsigned int mask,
-                                   int num_channels)
+    __device__ __inline__ float score_pose_gmem_lerp(float3 pos,
+                                                     unsigned int mask)
     {
         float score = 0;
-        // Computing lookup coordinates
-        int i = pos.x / grid_cell_size;
-        int j = pos.y / grid_cell_size;
-        int k = pos.z / grid_cell_size;
+        /*
+        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
 
-        int tile_size_in_bits = 5;
-        int padded_width = grid_width + cuDock::Swizzling::
-                                        get_padding_size(grid_width,
-                                                         tile_size_in_bits);
-        int padded_height = grid_height + cuDock::Swizzling::
-                                          get_padding_size(grid_height,
-                                                           tile_size_in_bits);
-        int idx = cuDock::Swizzling::get_swizzled_idx(i,
-                                                      j,
-                                                      k,
-                                                      padded_width,
-                                                      padded_height,
-                                                      tile_size_in_bits);
+        int idxs[8];
+        unsigned int dirs = 0b111110101100011010001000;
+        #pragma unroll 8
+        for (int d = 0; d < 8; ++d) {
+            unsigned int dir = dirs & 7u;
 
-        for (int c = 0; c < num_channels; ++c) {
-            score += _gpu_gmem_voxels[c][idx] * (mask & 1);
+            // Clamp to border
+            int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
+            int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
+            int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
+
+            idxs[d] = nk * GRID_WIDTH * GRID_HEIGHT +
+                      nj * GRID_WIDTH + ni;
+
+            dirs >>= 3;
+        }
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            for (int d = 0; d < 8; ++d) {
+                score += GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
+            }
             mask >>= 1;
         }
+        */
+
+        int lane_idx = threadIdx.x % 8;
+
+        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+
+        //int idxs[8];
+
+        unsigned int dirs = 0b111110101100011010001000;
+        unsigned dir = (dirs >> (3 * lane_idx)) & 7u;
+
+        // Clamp to border
+        int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
+        int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
+        int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
+
+        int idx = nk * GRID_WIDTH * GRID_HEIGHT +
+                  nj * GRID_WIDTH + ni;
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            score += GPU_GMEM_VOXELS[c][idx] * (mask & 1);
+            mask >>= 1;
+        }
+
+        score = warp_reduce(score);
+
+        return score;
+    }
+
+
+    __device__ __inline__
+    float score_pose_gmem_swizzled(int atom_idx,
+                                   int num_atoms,
+                                   int block_size,
+                                   float3 pos,
+                                   unsigned int mask)
+    {
+        float score = 0;
+
+        /*
+
+        NN_INTERPOLATE ---------
+
+        int i = pos.x / GRID_CELL_SIZE;
+        int j = pos.y / GRID_CELL_SIZE;
+        int k = pos.z / GRID_CELL_SIZE;
+
+        int idx = cuDock::Swizzling::
+                  get_swizzled_idx(i,
+                                   j,
+                                   k,
+                                   SWIZZLED_PADDED_WIDTH,
+                                   SWIZZLED_PADDED_HEIGHT,
+                                   SWIZZLED_TILE_SIZE_IN_BITS);
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            score += GPU_GMEM_VOXELS[c][idx] * (mask & 1);
+            mask >>= 1;
+        }
+
+        NN_INTERPOLATE -----------
+
+        */
+
+        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+
+        for (int a = 0; a < WARP_SIZE; a += WARP_SIZE / 8) {
+
+            int lane_idx = threadIdx.x % WARP_SIZE;
+            int src_lane = i + lane_idx / 8;
+
+            //WARNING: fix!
+            //if (src_lane + threadIdx.x / WARP_SIZE * WARP_SIZE >= num_atoms) {
+            //    continue;
+            //}
+
+            int ii = __shfl_sync(0xffffffff, i, src_lane);
+            int jj = __shfl_sync(0xffffffff, j, src_lane);
+            int kk = __shfl_sync(0xffffffff, k, src_lane);
+
+            int dir_idx = threadIdx.x % 8;
+
+            unsigned int dirs = 0b111110101100011010001000;
+            unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
+
+            // Clamp to border
+            int ni = max(0, min(ii + (dir & 1u), GRID_WIDTH - 1));
+            int nj = max(0, min(jj + ((dir & 2u) > 1), GRID_HEIGHT - 1));
+            int nk = max(0, min(kk + ((dir & 4u) > 2), GRID_DEPTH - 1));
+
+            int idx = cuDock::Swizzling::
+                      get_swizzled_idx(ni,
+                                       nj,
+                                       nk,
+                                       SWIZZLED_PADDED_WIDTH,
+                                       SWIZZLED_PADDED_HEIGHT,
+                                       SWIZZLED_TILE_SIZE_IN_BITS);
+
+            unsigned int m = mask;
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                score += GPU_GMEM_VOXELS[c][idx] * (m & 1);
+                m >>= 1;
+            }
+        }
+
+        score = warp_reduce(score);
+
+        /*
+
+        LIN_INTERPOLATE ----------
+
+        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+
+        int idxs[8];
+        unsigned int dirs = 0b111110101100011010001000;
+
+        #pragma unroll 8
+        for (int d = 0; d < 8; ++d) {
+            unsigned int dir = dirs & 7u;
+
+            // Clamp to border
+            int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
+            int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
+            int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
+
+            idxs[d] = cuDock::Swizzling::
+                      get_swizzled_idx(ni,
+                                       nj,
+                                       nk,
+                                       SWIZZLED_PADDED_WIDTH,
+                                       SWIZZLED_PADDED_HEIGHT,
+                                       SWIZZLED_TILE_SIZE_IN_BITS);
+
+            dirs >>= 3;
+        }
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            for (int d = 0; d < 8; ++d) {
+                score += GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
+            }
+            mask >>= 1;
+        }
+
+        LIN_INTERPOLATE ----------
+
+        */
+
+
+        /*
+        LIN_INTERPOLATE with 8 threads per atom
+
+        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+
+        int dir_idx = threadIdx.x % 8;
+
+        unsigned int dirs = 0b111110101100011010001000;
+        unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
+
+        // Clamp to border
+        int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
+        int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
+        int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
+
+        int idx = cuDock::Swizzling::
+                  get_swizzled_idx(ni,
+                                   nj,
+                                   nk,
+                                   SWIZZLED_PADDED_WIDTH,
+                                   SWIZZLED_PADDED_HEIGHT,
+                                   SWIZZLED_TILE_SIZE_IN_BITS);
+
+
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            score += GPU_GMEM_VOXELS[c][idx] * (mask & 1);
+            mask >>= 1;
+        }
+
+        score = warp_reduce(score);
+        */
 
         return score;
     }
 
     __device__ __inline__ float score_pose_tmem(float3 pos,
-                                                float grid_cell_size,
-                                                unsigned int mask,
-                                                int num_channels)
+                                                unsigned int mask)
     {
         float score = 0;
 
-        int tx = pos.x / grid_cell_size;
-        int ty = pos.y / grid_cell_size;
-        int tz = pos.z / grid_cell_size;
+        int tx = pos.x / GRID_CELL_SIZE;
+        int ty = pos.y / GRID_CELL_SIZE;
+        int tz = pos.z / GRID_CELL_SIZE;
 
-        for (int c = 0; c < num_channels; ++c) {
-            score += tex3D<float>(_gpu_tmem_voxels[c], tx, ty, tz) *
+        for (int c = 0; c < NUM_CHANNELS; ++c) {
+            score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz) *
                      (mask & 1);
             mask >>= 1;
         }
@@ -157,16 +349,13 @@ namespace
         return score;
     }
 
-    __global__ void score_poses(float grid_cell_size,
-                                int grid_width,
-                                int grid_height,
-                                int num_channels,
-                                const float3 *translations,
+    __global__ void score_poses(const float3 *translations,
                                 const float3 *rotations,
                                 float *scores,
                                 int num_atoms,
                                 int block_size,
-                                enum GPUMemType mem_type)
+                                enum GPUMemType mem_type,
+                                enum InterpolateType int_type)
     {
         // Broadcasting to warp
         float3 t = translations[blockIdx.x];
@@ -177,8 +366,13 @@ namespace
 
         float score = 0.0;
 
-        for (int idx = threadIdx.x; idx < num_atoms; idx += block_size) {
-            float3 pos = _get_atom_pos(idx);
+        float3 pos;
+        unsigned int mask;
+
+        int idx = threadIdx.x;
+
+        if (idx < num_atoms) {
+            pos = _get_atom_pos(idx);
             cuDock::Docker::transform_atom_pos(pos.x,
                                                pos.y,
                                                pos.z,
@@ -190,36 +384,26 @@ namespace
                                                pos.y,
                                                pos.z);
 
-            unsigned int mask = _gpu_ligand_data.atoms_channel_mask[idx];
-
-            if (mem_type == GPU_GMEM) {
-                score += score_pose_gmem(pos,
-                                         grid_cell_size,
-                                         grid_height,
-                                         grid_width,
-                                         mask,
-                                         num_channels);
-
-            } else if (mem_type == GPU_GMEM_SWIZZLED) {
-                score += score_pose_gmem_swizzled(pos,
-                                                  grid_cell_size,
-                                                  grid_height,
-                                                  grid_width,
-                                                  mask,
-                                                  num_channels);
-
-            } else if (mem_type == GPU_TMEM) {
-                score += score_pose_tmem(pos,
-                                         grid_cell_size,
-                                         mask,
-                                         num_channels);
-            }
+            mask = GPU_LIGAND_DATA.atoms_channel_mask[idx];
         }
 
-        __shared__ float shmem[BLOCK_SIZE];
-        score = block_reduce(score, block_size, shmem);
+        if (mem_type == GPU_GMEM) {
+            score += score_pose_gmem_lerp(pos, mask);
 
-        if (threadIdx.x == 0) {
+        } else if (mem_type == GPU_GMEM_SWIZZLED) {
+            score += score_pose_gmem_swizzled(
+                idx, num_atoms, block_size, pos, mask);
+
+        } else if (mem_type == GPU_TMEM) {
+            score += score_pose_tmem(pos, mask);
+        }
+
+        __syncthreads();
+
+        //__shared__ float shmem[BLOCK_SIZE];
+        //score = block_reduce(score, block_size, shmem);
+
+        if (threadIdx.x == 0 && block_size > 0) {
             scores[blockIdx.x] = score;
         }
     }
@@ -330,9 +514,50 @@ namespace cuDock
                 Ligand::get_atom_channel_mask(atom.type);
         }
 
-        CUDA_CHECK_ERR(cudaMemcpyToSymbol(_gpu_ligand_data,
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(GPU_LIGAND_DATA,
                                           &ligand_data,
-                                          sizeof(struct Ligand::GPUData))); 
+                                          sizeof(struct Ligand::GPUData)));
+
+        // Copying various data to constant memory
+
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(NUM_CHANNELS,
+                                          &Pocket::NUM_CHANNELS,
+                                          sizeof(int)));
+
+        int shape = _pocket.get_shape(0);
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(GRID_WIDTH, &shape, sizeof(int)));
+
+        shape = _pocket.get_shape(1);
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(GRID_HEIGHT, &shape, sizeof(int)));
+
+        shape = _pocket.get_shape(2);
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(GRID_DEPTH, &shape, sizeof(int)));
+
+        float cell_size = _pocket.get_cell_size();
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(GRID_CELL_SIZE,
+                                          &cell_size,
+                                          sizeof(float)));
+
+        int tile_size_in_bits = 4;
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_TILE_SIZE_IN_BITS,
+                                          &tile_size_in_bits,
+                                          sizeof(int)));
+
+        int padded_size = _pocket.get_shape(0) +
+                          cuDock::Swizzling::
+                          get_padding_size(_pocket.get_shape(0),
+                                           tile_size_in_bits);
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_PADDED_WIDTH,
+                                          &padded_size,
+                                          sizeof(int)));
+
+        padded_size = _pocket.get_shape(1) +
+                      cuDock::Swizzling::
+                      get_padding_size(_pocket.get_shape(1),
+                                       tile_size_in_bits);
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_PADDED_HEIGHT,
+                                          &padded_size,
+                                          sizeof(int)));
     }
 
     void Docker::off_gpu()
@@ -365,13 +590,13 @@ namespace cuDock
             _pocket.is_on_gpu(GPU_GMEM_SWIZZLED)) {
             // Copy pocket voxels gmem pointers to constant memory
             CUDA_CHECK_ERR(cudaMemcpyToSymbol(
-                _gpu_gmem_voxels,
+                GPU_GMEM_VOXELS,
                 _pocket.get_gpu_gmem_voxels().data(),
                 sizeof(float *) * Pocket::NUM_CHANNELS));
         } else {
             // Copy pocket voxels tmem pointers to constant memory
             CUDA_CHECK_ERR(cudaMemcpyToSymbol(
-                _gpu_tmem_voxels,
+                GPU_TMEM_VOXELS,
                 _pocket.get_gpu_tmem_voxels().data(),
                 sizeof(cudaTextureObject_t) * Pocket::NUM_CHANNELS));
         }
@@ -383,46 +608,37 @@ namespace cuDock
             CUDA_TIME_EXEC("_score_gmem", [&](){
                 score_poses<<<
                     num_poses,
-                    block_size>>>(_pocket.get_cell_size(),
-                                  _pocket.get_shape(0),
-                                  _pocket.get_shape(1),
-                                  Pocket::NUM_CHANNELS,
-                                  _gpu_translations,
+                    block_size>>>(_gpu_translations,
                                   _gpu_rotations,
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  GPU_GMEM);
+                                  GPU_GMEM,
+                                  _pocket.get_interpolate());
             });
         } else if (_pocket.is_on_gpu(GPU_GMEM_SWIZZLED)) {
             CUDA_TIME_EXEC("_score_gmem_swizzled", [&](){
                 score_poses<<<
                     num_poses,
-                    block_size>>>(_pocket.get_cell_size(),
-                                  _pocket.get_shape(0),
-                                  _pocket.get_shape(1),
-                                  Pocket::NUM_CHANNELS,
-                                  _gpu_translations,
+                    block_size>>>(_gpu_translations,
                                   _gpu_rotations,
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  GPU_GMEM_SWIZZLED);
+                                  GPU_GMEM_SWIZZLED,
+                                  _pocket.get_interpolate());
             });
         } else {
             CUDA_TIME_EXEC("_score_tmem", [&](){
                 score_poses<<<
                     num_poses,
-                    block_size>>>(_pocket.get_cell_size(),
-                                  _pocket.get_shape(0),
-                                  _pocket.get_shape(1),
-                                  Pocket::NUM_CHANNELS,
-                                  _gpu_translations,
+                    block_size>>>(_gpu_translations,
                                   _gpu_rotations,
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  GPU_TMEM);
+                                  GPU_TMEM,
+                                  _pocket.get_interpolate());
             });
 
         }

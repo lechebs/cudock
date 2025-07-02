@@ -47,10 +47,11 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     docker.get_scores(cpu_scores);
     docker.to_gpu();
     */
-
     docker.to_gpu();
 
-    pocket.to_gpu(GPU_TMEM);
+    pocket.set_interpolate(LIN_INTERPOLATE);
+
+    pocket.to_gpu(GPU_GMEM_SWIZZLED);
     docker.run();
 
     /*
@@ -58,12 +59,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     pocket.to_gpu(GPU_GMEM_SWIZZLED);
     docker.run();
     docker.get_scores(gpu_gmem_scores);
+    */
 
+
+    /*
     pocket.off_gpu(GPU_GMEM_SWIZZLED);
     pocket.to_gpu(GPU_TMEM);
     docker.run();
-    docker.get_scores(gpu_tmem_scores);
     */
+    //docker.get_scores(gpu_tmem_scores);
 
     /*
     std::cout << std::fixed;
