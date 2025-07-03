@@ -20,7 +20,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<Ligand::Atom> atoms;
     Parsing::read_ligand_mol2(ligand_file_path, atoms);
 
-    Pocket pocket(points, 0.2);
+    Pocket pocket(points, 0.5);
     Ligand ligand(atoms);
 
     const int num_poses = 1 << 20;
@@ -38,9 +38,8 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     Docker docker(pocket, ligand);
     docker.generate_random_poses(num_poses);
 
-    std::vector<float> cpu_scores;
-    std::vector<float> gpu_gmem_scores;
-    std::vector<float> gpu_tmem_scores;
+    std::vector<float> ref_scores;
+    std::vector<float> res_scores;
 
     /*
     docker.run();
@@ -51,48 +50,35 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
 
     pocket.set_interpolate(LIN_INTERPOLATE);
 
-    pocket.to_gpu(GPU_GMEM_SWIZZLED);
+    /*
+    pocket.to_gpu(GPU_GMEM);
     docker.run();
 
-    /*
     pocket.off_gpu(GPU_GMEM);
+    */
     pocket.to_gpu(GPU_GMEM_SWIZZLED);
     docker.run();
-    docker.get_scores(gpu_gmem_scores);
-    */
+    docker.get_scores(res_scores);
 
-
-    /*
     pocket.off_gpu(GPU_GMEM_SWIZZLED);
     pocket.to_gpu(GPU_TMEM);
     docker.run();
-    */
-    //docker.get_scores(gpu_tmem_scores);
+    docker.get_scores(ref_scores);
 
-    /*
     std::cout << std::fixed;
 
     // Validate results
-    for (size_t i = 0; i < cpu_scores.size(); ++i) {
-        float cpu_score = cpu_scores[i];
-        float gpu_gmem_score = gpu_gmem_scores[i];
-        float gpu_tmem_score = gpu_tmem_scores[i];
+    for (size_t i = 0; i < ref_scores.size(); ++i) {
+        float ref_score = ref_scores[i];
+        float res_score = res_scores[i];
 
-        if (std::abs(cpu_score - gpu_gmem_score) > 1e-4f) {
-            std::cout << "[GMEM] WARNING: incorrect score at pose "
+        if (std::abs(ref_score - res_score) > 1e-1f) {
+            std::cout << "WARNING: incorrect score at pose "
                       << i << " ("
-                      << "CPU: " << cpu_score << ", GPU: "
-                      << gpu_gmem_score << ")" << std::endl;
-        }
-
-        if (std::abs(cpu_score - gpu_tmem_score) > 1e-4f) {
-            std::cout << "[TMEM] WARNING: incorrect score at pose "
-                      << i << " ("
-                      << "CPU: " << cpu_score << ", GPU: "
-                      << gpu_tmem_score << ")" << std::endl;
+                      << "ref: " << ref_score << ", res: "
+                      << res_score << ")" << std::endl;
         }
     }
-    */
 
     return EXIT_SUCCESS;
 }

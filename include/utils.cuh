@@ -24,7 +24,7 @@ enum InterpolateType { NN_INTERPOLATE, LIN_INTERPOLATE };
 
 template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
                                          const T &launch_kernel,
-                                         int num_launches = 1,
+                                         int num_launches = 10,
                                          int num_warmup = 1)
 {
     cudaEvent_t start, stop;

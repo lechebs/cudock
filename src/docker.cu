@@ -89,6 +89,33 @@ namespace
         return pos;
     }
 
+    __device__ __forceinline__ float lerp(float t, float v1, float v2)
+    {
+        return v1 * (1.0f - t) + v2 * t;
+    }
+
+    __device__ __forceinline__ float bilerp(float x, float y,
+                                            float v1, float v2,
+                                            float v3, float v4)
+    {
+        return lerp(y, lerp(x, v1, v2), lerp(x, v3, v4));
+    }
+
+    __device__ float trilerp(float x, float y, float z, float v[8])
+    {
+        float v1 = bilerp(x,
+                          y,
+                          v[0], v[1],
+                          v[2], v[3]);
+
+        float v2 = bilerp(x,
+                          y,
+                          v[4], v[5],
+                          v[6], v[7]);
+
+        return lerp(z, v1, v2);
+    }
+
     __device__ __inline__ float score_pose_gmem(float3 pos,
                                                 unsigned int mask)
     {
@@ -112,21 +139,22 @@ namespace
                                                      unsigned int mask)
     {
         float score = 0;
-        /*
-        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+
+        int i = floorf(pos.x / GRID_CELL_SIZE - 0.5f);
+        int j = floorf(pos.y / GRID_CELL_SIZE - 0.5f);
+        int k = floorf(pos.z / GRID_CELL_SIZE - 0.5f);
 
         int idxs[8];
         unsigned int dirs = 0b111110101100011010001000;
+
         #pragma unroll 8
         for (int d = 0; d < 8; ++d) {
             unsigned int dir = dirs & 7u;
 
             // Clamp to border
             int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
-            int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
-            int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
+            int nj = max(0, min(j + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
+            int nk = max(0, min(k + ((dir >> 2) & 1u), GRID_DEPTH - 1));
 
             idxs[d] = nk * GRID_WIDTH * GRID_HEIGHT +
                       nj * GRID_WIDTH + ni;
@@ -134,43 +162,22 @@ namespace
             dirs >>= 3;
         }
 
+        float x = pos.x / GRID_CELL_SIZE - 0.5f - i;
+        float y = pos.y / GRID_CELL_SIZE - 0.5f - j;
+        float z = pos.z / GRID_CELL_SIZE - 0.5f - k;
+
         for (int c = 0; c < NUM_CHANNELS; ++c) {
+            float values[8];
             for (int d = 0; d < 8; ++d) {
-                score += GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
+                values[d] = GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
             }
+
+            score += trilerp(x, y, z, values);
             mask >>= 1;
         }
-        */
-
-        int lane_idx = threadIdx.x % 8;
-
-        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-
-        //int idxs[8];
-
-        unsigned int dirs = 0b111110101100011010001000;
-        unsigned dir = (dirs >> (3 * lane_idx)) & 7u;
-
-        // Clamp to border
-        int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
-        int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
-        int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
-
-        int idx = nk * GRID_WIDTH * GRID_HEIGHT +
-                  nj * GRID_WIDTH + ni;
-
-        for (int c = 0; c < NUM_CHANNELS; ++c) {
-            score += GPU_GMEM_VOXELS[c][idx] * (mask & 1);
-            mask >>= 1;
-        }
-
-        score = warp_reduce(score);
 
         return score;
     }
-
 
     __device__ __inline__
     float score_pose_gmem_swizzled(int atom_idx,
@@ -206,58 +213,81 @@ namespace
 
         */
 
-        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
 
-        for (int a = 0; a < WARP_SIZE; a += WARP_SIZE / 8) {
+        int i = floorf(pos.x / GRID_CELL_SIZE - 0.5f);
+        int j = floorf(pos.y / GRID_CELL_SIZE - 0.5f);
+        int k = floorf(pos.z / GRID_CELL_SIZE - 0.5f);
+
+        for (int atom = 0; atom < WARP_SIZE; atom += WARP_SIZE / 8) {
 
             int lane_idx = threadIdx.x % WARP_SIZE;
-            int src_lane = i + lane_idx / 8;
-
-            //WARNING: fix!
-            //if (src_lane + threadIdx.x / WARP_SIZE * WARP_SIZE >= num_atoms) {
-            //    continue;
-            //}
+            int src_lane = atom + lane_idx / 8;
 
             int ii = __shfl_sync(0xffffffff, i, src_lane);
             int jj = __shfl_sync(0xffffffff, j, src_lane);
             int kk = __shfl_sync(0xffffffff, k, src_lane);
+            unsigned int m = __shfl_sync(0xffffffff, mask, src_lane);
 
-            int dir_idx = threadIdx.x % 8;
+            int idx;
 
-            unsigned int dirs = 0b111110101100011010001000;
-            unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
+            bool active = src_lane + threadIdx.x / WARP_SIZE *
+                                     WARP_SIZE < num_atoms;
 
-            // Clamp to border
-            int ni = max(0, min(ii + (dir & 1u), GRID_WIDTH - 1));
-            int nj = max(0, min(jj + ((dir & 2u) > 1), GRID_HEIGHT - 1));
-            int nk = max(0, min(kk + ((dir & 4u) > 2), GRID_DEPTH - 1));
+            if (active) {
 
-            int idx = cuDock::Swizzling::
+                int dir_idx = threadIdx.x % 8;
+                unsigned int dirs = 0b111110101100011010001000;
+                unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
+
+                // Clamp to border
+                int ni = max(0, min(ii + (dir & 1u), GRID_WIDTH - 1));
+                int nj = max(0, min(jj + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
+                int nk = max(0, min(kk + ((dir >> 2) & 1u), GRID_DEPTH - 1));
+
+                idx = cuDock::Swizzling::
                       get_swizzled_idx(ni,
                                        nj,
                                        nk,
                                        SWIZZLED_PADDED_WIDTH,
                                        SWIZZLED_PADDED_HEIGHT,
                                        SWIZZLED_TILE_SIZE_IN_BITS);
+            }
 
-            unsigned int m = mask;
+            float x = __shfl_sync(0xffffffff, pos.x, src_lane);
+            float y = __shfl_sync(0xffffffff, pos.y, src_lane);
+            float z = __shfl_sync(0xffffffff, pos.z, src_lane);
+
+            x = x / GRID_CELL_SIZE - 0.5f - ii;
+            y = y / GRID_CELL_SIZE - 0.5f - jj;
+            z = z / GRID_CELL_SIZE - 0.5f - kk;
+
             for (int c = 0; c < NUM_CHANNELS; ++c) {
-                score += GPU_GMEM_VOXELS[c][idx] * (m & 1);
+                float v1 = active ? GPU_GMEM_VOXELS[c][idx] : 0;
+                float v2 = __shfl_down_sync(0xffffffff, v1, 1, 2);
+
+                float v12 = lerp(x, v1, v2);
+                float v34 = __shfl_down_sync(0xffffffff, v12, 2, 4);
+
+                float v1234 = lerp(y, v12, v34);
+                float v5678 = __shfl_down_sync(0xffffffff, v1234, 4, 8);
+
+                score += lerp(z, v1234, v5678) * (m & 1);
                 m >>= 1;
             }
         }
 
-        score = warp_reduce(score);
+        if (threadIdx.x % 8 != 0) {
+            score = 0;
+        }
+
+        //score = warp_reduce(score);
+
+        // LIN_INTERPOLATE ----------
 
         /*
-
-        LIN_INTERPOLATE ----------
-
-        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
+        int i = floorf(pos.x / GRID_CELL_SIZE - 0.5f);
+        int j = floorf(pos.y / GRID_CELL_SIZE - 0.5f);
+        int k = floorf(pos.z / GRID_CELL_SIZE - 0.5f);
 
         int idxs[8];
         unsigned int dirs = 0b111110101100011010001000;
@@ -268,8 +298,8 @@ namespace
 
             // Clamp to border
             int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
-            int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
-            int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
+            int nj = max(0, min(j + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
+            int nk = max(0, min(k + ((dir >> 2) & 1u), GRID_DEPTH - 1));
 
             idxs[d] = cuDock::Swizzling::
                       get_swizzled_idx(ni,
@@ -282,17 +312,22 @@ namespace
             dirs >>= 3;
         }
 
+        float x = pos.x / GRID_CELL_SIZE - 0.5f - i;
+        float y = pos.y / GRID_CELL_SIZE - 0.5f - j;
+        float z = pos.z / GRID_CELL_SIZE - 0.5f - k;
+
         for (int c = 0; c < NUM_CHANNELS; ++c) {
+            float values[8];
             for (int d = 0; d < 8; ++d) {
-                score += GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
+                values[d] = GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
             }
+
+            score += trilerp(x, y, z, values);
             mask >>= 1;
         }
-
-        LIN_INTERPOLATE ----------
-
         */
 
+        // LIN_INTERPOLATE ----------
 
         /*
         LIN_INTERPOLATE with 8 threads per atom
@@ -336,9 +371,9 @@ namespace
     {
         float score = 0;
 
-        int tx = pos.x / GRID_CELL_SIZE;
-        int ty = pos.y / GRID_CELL_SIZE;
-        int tz = pos.z / GRID_CELL_SIZE;
+        float tx = pos.x / GRID_CELL_SIZE;
+        float ty = pos.y / GRID_CELL_SIZE;
+        float tz = pos.z / GRID_CELL_SIZE;
 
         for (int c = 0; c < NUM_CHANNELS; ++c) {
             score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz) *
@@ -387,8 +422,12 @@ namespace
             mask = GPU_LIGAND_DATA.atoms_channel_mask[idx];
         }
 
+        __syncthreads();
+
         if (mem_type == GPU_GMEM) {
-            score += score_pose_gmem_lerp(pos, mask);
+            if (idx < num_atoms) {
+                score += score_pose_gmem_lerp(pos, mask);
+            }
 
         } else if (mem_type == GPU_GMEM_SWIZZLED) {
             score += score_pose_gmem_swizzled(
@@ -400,10 +439,10 @@ namespace
 
         __syncthreads();
 
-        //__shared__ float shmem[BLOCK_SIZE];
-        //score = block_reduce(score, block_size, shmem);
+        __shared__ float shmem[BLOCK_SIZE];
+        score = block_reduce(score, block_size, shmem);
 
-        if (threadIdx.x == 0 && block_size > 0) {
+        if (threadIdx.x == 0) {
             scores[blockIdx.x] = score;
         }
     }

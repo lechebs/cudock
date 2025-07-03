@@ -16,7 +16,7 @@ namespace
     void _alloc_global(float *src[], float *dst[], int size, int num_buffers)
     {
         for (int i = 0; i < num_buffers; ++i) {
-            //CUDA_CHECK_ERR(cudaMalloc(&dst[i], sizeof(float) * size));
+            CUDA_CHECK_ERR(cudaMalloc(&dst[i], sizeof(float) * size));
             CUDA_CHECK_ERR(cudaMemcpy(dst[i],
                                       src[i],
                                       sizeof(float) * size,
@@ -130,6 +130,7 @@ namespace cuDock
                     Swizzling::get_swizzled_size(w, h, d, tile_size_in_bits);
 
                 // Testing compressible memory
+                /*
                 for (int c = 0; c < NUM_CHANNELS; ++c) {
 
                 CUmemAllocationProp prop = {};
@@ -179,6 +180,7 @@ namespace cuDock
                 cuMemSetAccess(ptr, padded_size, &accessDesc, 1);
                 _gpu_global_voxels[c] = (float *) ptr;
                 }
+                    */
 
                 std::array<float *, NUM_CHANNELS> voxels_swizzled;
                 for (int c = 0; c < NUM_CHANNELS; ++c) {

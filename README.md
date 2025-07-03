@@ -24,9 +24,12 @@ If you omit the command, you will have the executable in `build/src` folder.
  - custom software swizzling in global memory (done)
  - evaluate __ldg on global memory (it's already done)
  - channel packing (e.g. two float4 textures and global "float8")
- - software interpolation on global memory
+ - software interpolation on global memory (done)
  - half precision (possibly with tensor cores reduction?)
- - memory compression??
+ - memory compression (done)
+
+ - collaborativey load the neighbours using tex3d and perform sw interpolation
+   (should allow greater throughput)
 
  - precompute interaction for all atom types, this effectively allows to reduce the fetch
  - sort atoms based on morton order to increase spatial locality within a warp
@@ -36,3 +39,10 @@ If you omit the command, you will have the executable in `build/src` folder.
  - predicated execution may cause texture fetches even when guarded by conditionals,
    so perhaps the only way is to group same atom types in the same warp, sorting around
    stuff will then be needed
+
+ - spatial hashing to store only non empty voxels or store sorted octree leaves and perform binary searches to determine if they're empty or not
+ consider compression on the indirection table
+
+
+ Looks like my custom swizzle works better for bigger grids (by tweaking the tile size), and compression is also even better for larger grids (which i assume are thus sparser, so probably because of that). Nevertheless for a spacing ~0.375A they behave mostly the same, even with compression. I should try to collaboratively fetch the texture and interpolate in sw to see if that is better.
+
