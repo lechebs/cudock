@@ -29,7 +29,13 @@ If you omit the command, you will have the executable in `build/src` folder.
  - memory compression (done)
 
  - collaborativey load the neighbours using tex3d and perform sw interpolation
-   (should allow greater throughput)
+   (should allow greater throughput, does not)
+
+ - try to load the ligand bbox voxels in shared memory, so then when fetching neighbours
+   you don't fetch them again
+
+ - try to group different poses in the same block, perhaps even assign one warp per pose,  but make sure that threads in the same block are assigned to poses translated to the
+   close spots, this should in theory allow for better L1 locality
 
  - precompute interaction for all atom types, this effectively allows to reduce the fetch
  - sort atoms based on morton order to increase spatial locality within a warp
@@ -44,5 +50,6 @@ If you omit the command, you will have the executable in `build/src` folder.
  consider compression on the indirection table
 
 
- Looks like my custom swizzle works better for bigger grids (by tweaking the tile size), and compression is also even better for larger grids (which i assume are thus sparser, so probably because of that). Nevertheless for a spacing ~0.375A they behave mostly the same, even with compression. I should try to collaboratively fetch the texture and interpolate in sw to see if that is better.
+ Looks like my custom swizzle works better for bigger grids (by tweaking the tile size), and compression is also even better for larger grids (which i assume are thus sparser, so probably because of that). Nevertheless for a spacing ~0.375A they behave mostly the same, even with compression. I should try to collaboratively fetch the texture and interpolate in sw to see if that is better (not faster).
+
 

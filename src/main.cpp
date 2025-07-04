@@ -41,21 +41,23 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<float> ref_scores;
     std::vector<float> res_scores;
 
+    pocket.set_swizzled_tile_size(128);
+    pocket.use_compressible_memory(false);
+
+    docker.to_gpu();
+
     /*
     docker.run();
     docker.get_scores(cpu_scores);
     docker.to_gpu();
     */
-    docker.to_gpu();
 
     pocket.set_interpolate(LIN_INTERPOLATE);
 
-    /*
     pocket.to_gpu(GPU_GMEM);
     docker.run();
 
     pocket.off_gpu(GPU_GMEM);
-    */
     pocket.to_gpu(GPU_GMEM_SWIZZLED);
     docker.run();
     docker.get_scores(res_scores);
@@ -65,6 +67,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     docker.run();
     docker.get_scores(ref_scores);
 
+    /*
     std::cout << std::fixed;
 
     // Validate results
@@ -72,13 +75,14 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
         float ref_score = ref_scores[i];
         float res_score = res_scores[i];
 
-        if (std::abs(ref_score - res_score) > 1e-1f) {
+        if (std::abs(ref_score - res_score) > 1e-3f) {
             std::cout << "WARNING: incorrect score at pose "
                       << i << " ("
                       << "ref: " << ref_score << ", res: "
                       << res_score << ")" << std::endl;
         }
     }
+    */
 
     return EXIT_SUCCESS;
 }

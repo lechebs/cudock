@@ -5,6 +5,8 @@
 #include <cstring>
 #include <cmath>
 
+#include <cuda.h>
+
 #include "vec3.hpp"
 
 #define CUDA_CHECK_ERR(api_call)                            \
@@ -19,12 +21,29 @@
     }                                                       \
 }
 
+#define CUDADR_CHECK_ERR(api_call)                          \
+{                                                           \
+    CUresult res = api_call;                                \
+    if (res != CUDA_SUCCESS) {                              \
+        char err_string[128];                               \
+        const char *ptr = err_string;                       \
+        cuGetErrorString(res, &ptr);                        \
+        std::cout << "[ERROR:"                              \
+                  << strrchr(__FILE__, '/') + 1 << ":"      \
+                  << __LINE__ << "] "                       \
+                  << err_string                             \
+                  << std::endl;                             \
+    }                                                       \
+}
+
+
+
 enum GPUMemType { GPU_GMEM, GPU_GMEM_SWIZZLED, GPU_TMEM };
 enum InterpolateType { NN_INTERPOLATE, LIN_INTERPOLATE };
 
 template<typename T> void CUDA_TIME_EXEC(const std::string &tag,
                                          const T &launch_kernel,
-                                         int num_launches = 10,
+                                         int num_launches = 5,
                                          int num_warmup = 1)
 {
     cudaEvent_t start, stop;

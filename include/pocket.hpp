@@ -17,6 +17,7 @@ namespace cuDock
     {
     public:
         constexpr static int NUM_CHANNELS = 8;
+        constexpr static float BASE_CELL_SIZE = 2.0;
 
         struct Point
         {
@@ -35,6 +36,11 @@ namespace cuDock
 
         void set_interpolate(enum InterpolateType int_type);
         enum InterpolateType get_interpolate() const;
+
+        void set_swizzled_tile_size(int tile_size);
+        int get_swizzled_tile_size() const;
+
+        void use_compressible_memory(bool flag);
 
         const std::array<float *, NUM_CHANNELS> &get_gpu_gmem_voxels() const;
 
@@ -87,6 +93,9 @@ namespace cuDock
         std::array<bool, 3> _is_on_gpu = { 0, 0, 0 };
 
         enum InterpolateType int_type_ = NN_INTERPOLATE;
+
+        int swizzled_tile_size_ = 32;
+        bool use_compressible_memory_ = false;
     };
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);

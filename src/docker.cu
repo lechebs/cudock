@@ -31,9 +31,10 @@ namespace
     __constant__ int GRID_DEPTH;
     __constant__ float GRID_CELL_SIZE;
 
-    __constant__ int SWIZZLED_PADDED_WIDTH;
-    __constant__ int SWIZZLED_PADDED_HEIGHT;
-    __constant__ int SWIZZLED_TILE_SIZE_IN_BITS;
+    __constant__ int SWIZZLED_X_OFFSET_MULT;
+    __constant__ int SWIZZLED_Y_OFFSET_MULT;
+    __constant__ int SWIZZLED_Z_OFFSET_MULT;
+    __constant__ int SWIZZLED_TILE_SIZE;
 
     __device__ __inline__ float warp_reduce(float value)
     {
@@ -94,6 +95,7 @@ namespace
         return v1 * (1.0f - t) + v2 * t;
     }
 
+    /*
     __device__ __forceinline__ float bilerp(float x, float y,
                                             float v1, float v2,
                                             float v3, float v4)
@@ -115,9 +117,33 @@ namespace
 
         return lerp(z, v1, v2);
     }
+    */
 
-    __device__ __inline__ float score_pose_gmem(float3 pos,
-                                                unsigned int mask)
+    template<GPUMemType MEM_TYPE>
+    __device__ __forceinline__
+    float voxel_fetch(int c, int i, int j, int k)
+    {
+        if constexpr (MEM_TYPE == GPU_GMEM) {
+            int idx = k * GRID_WIDTH * GRID_HEIGHT +
+                      j * GRID_WIDTH + i;
+            return GPU_GMEM_VOXELS[c][idx];
+
+        } else if (MEM_TYPE == GPU_GMEM_SWIZZLED) {
+            int idx = cuDock::Swizzling::
+                      get_swizzled_idx(i, j, k,
+                                       SWIZZLED_X_OFFSET_MULT,
+                                       SWIZZLED_Y_OFFSET_MULT,
+                                       SWIZZLED_Z_OFFSET_MULT,
+                                       SWIZZLED_TILE_SIZE);
+            return GPU_GMEM_VOXELS[c][idx];
+
+        } else {
+            return tex3D<float>(GPU_TMEM_VOXELS[c], i, j, k);
+        }
+    }
+
+    template<GPUMemType MEM_TYPE>
+    __device__ float score_pose_nn(float3 pos, unsigned int mask)
     {
         float score = 0;
 
@@ -125,94 +151,22 @@ namespace
         int j = pos.y / GRID_CELL_SIZE;
         int k = pos.z / GRID_CELL_SIZE;
 
-        int grid_idx = k * GRID_WIDTH * GRID_HEIGHT + j * GRID_WIDTH + i;
-
         for (int c = 0; c < NUM_CHANNELS; ++c) {
-            score += GPU_GMEM_VOXELS[c][grid_idx] * (mask & 1);
+            score += voxel_fetch<MEM_TYPE>(c, i, j, k) * (mask & 1);
             mask >>= 1;
         }
 
         return score;
     }
 
-    __device__ __inline__ float score_pose_gmem_lerp(float3 pos,
-                                                     unsigned int mask)
+    template<GPUMemType MEM_TYPE>
+    __device__ float score_pose_lerp(int atom_idx,
+                                     int num_atoms,
+                                     int block_size,
+                                     float3 pos,
+                                     unsigned int mask)
     {
         float score = 0;
-
-        int i = floorf(pos.x / GRID_CELL_SIZE - 0.5f);
-        int j = floorf(pos.y / GRID_CELL_SIZE - 0.5f);
-        int k = floorf(pos.z / GRID_CELL_SIZE - 0.5f);
-
-        int idxs[8];
-        unsigned int dirs = 0b111110101100011010001000;
-
-        #pragma unroll 8
-        for (int d = 0; d < 8; ++d) {
-            unsigned int dir = dirs & 7u;
-
-            // Clamp to border
-            int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
-            int nj = max(0, min(j + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
-            int nk = max(0, min(k + ((dir >> 2) & 1u), GRID_DEPTH - 1));
-
-            idxs[d] = nk * GRID_WIDTH * GRID_HEIGHT +
-                      nj * GRID_WIDTH + ni;
-
-            dirs >>= 3;
-        }
-
-        float x = pos.x / GRID_CELL_SIZE - 0.5f - i;
-        float y = pos.y / GRID_CELL_SIZE - 0.5f - j;
-        float z = pos.z / GRID_CELL_SIZE - 0.5f - k;
-
-        for (int c = 0; c < NUM_CHANNELS; ++c) {
-            float values[8];
-            for (int d = 0; d < 8; ++d) {
-                values[d] = GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
-            }
-
-            score += trilerp(x, y, z, values);
-            mask >>= 1;
-        }
-
-        return score;
-    }
-
-    __device__ __inline__
-    float score_pose_gmem_swizzled(int atom_idx,
-                                   int num_atoms,
-                                   int block_size,
-                                   float3 pos,
-                                   unsigned int mask)
-    {
-        float score = 0;
-
-        /*
-
-        NN_INTERPOLATE ---------
-
-        int i = pos.x / GRID_CELL_SIZE;
-        int j = pos.y / GRID_CELL_SIZE;
-        int k = pos.z / GRID_CELL_SIZE;
-
-        int idx = cuDock::Swizzling::
-                  get_swizzled_idx(i,
-                                   j,
-                                   k,
-                                   SWIZZLED_PADDED_WIDTH,
-                                   SWIZZLED_PADDED_HEIGHT,
-                                   SWIZZLED_TILE_SIZE_IN_BITS);
-
-        for (int c = 0; c < NUM_CHANNELS; ++c) {
-            score += GPU_GMEM_VOXELS[c][idx] * (mask & 1);
-            mask >>= 1;
-        }
-
-        NN_INTERPOLATE -----------
-
-        */
-
 
         int i = floorf(pos.x / GRID_CELL_SIZE - 0.5f);
         int j = floorf(pos.y / GRID_CELL_SIZE - 0.5f);
@@ -228,29 +182,22 @@ namespace
             int kk = __shfl_sync(0xffffffff, k, src_lane);
             unsigned int m = __shfl_sync(0xffffffff, mask, src_lane);
 
-            int idx;
+            int ni = 0;
+            int nj = 0;
+            int nk = 0;
 
             bool active = src_lane + threadIdx.x / WARP_SIZE *
                                      WARP_SIZE < num_atoms;
 
             if (active) {
-
                 int dir_idx = threadIdx.x % 8;
                 unsigned int dirs = 0b111110101100011010001000;
                 unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
 
                 // Clamp to border
-                int ni = max(0, min(ii + (dir & 1u), GRID_WIDTH - 1));
-                int nj = max(0, min(jj + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
-                int nk = max(0, min(kk + ((dir >> 2) & 1u), GRID_DEPTH - 1));
-
-                idx = cuDock::Swizzling::
-                      get_swizzled_idx(ni,
-                                       nj,
-                                       nk,
-                                       SWIZZLED_PADDED_WIDTH,
-                                       SWIZZLED_PADDED_HEIGHT,
-                                       SWIZZLED_TILE_SIZE_IN_BITS);
+                ni = max(0, min(ii + (dir & 1u), GRID_WIDTH - 1));
+                nj = max(0, min(jj + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
+                nk = max(0, min(kk + ((dir >> 2) & 1u), GRID_DEPTH - 1));
             }
 
             float x = __shfl_sync(0xffffffff, pos.x, src_lane);
@@ -262,7 +209,7 @@ namespace
             z = z / GRID_CELL_SIZE - 0.5f - kk;
 
             for (int c = 0; c < NUM_CHANNELS; ++c) {
-                float v1 = active ? GPU_GMEM_VOXELS[c][idx] : 0;
+                float v1 = active ? voxel_fetch<MEM_TYPE>(c, ni, nj, nk) : 0;
                 float v2 = __shfl_down_sync(0xffffffff, v1, 1, 2);
 
                 float v12 = lerp(x, v1, v2);
@@ -280,94 +227,11 @@ namespace
             score = 0;
         }
 
-        //score = warp_reduce(score);
-
-        // LIN_INTERPOLATE ----------
-
-        /*
-        int i = floorf(pos.x / GRID_CELL_SIZE - 0.5f);
-        int j = floorf(pos.y / GRID_CELL_SIZE - 0.5f);
-        int k = floorf(pos.z / GRID_CELL_SIZE - 0.5f);
-
-        int idxs[8];
-        unsigned int dirs = 0b111110101100011010001000;
-
-        #pragma unroll 8
-        for (int d = 0; d < 8; ++d) {
-            unsigned int dir = dirs & 7u;
-
-            // Clamp to border
-            int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
-            int nj = max(0, min(j + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
-            int nk = max(0, min(k + ((dir >> 2) & 1u), GRID_DEPTH - 1));
-
-            idxs[d] = cuDock::Swizzling::
-                      get_swizzled_idx(ni,
-                                       nj,
-                                       nk,
-                                       SWIZZLED_PADDED_WIDTH,
-                                       SWIZZLED_PADDED_HEIGHT,
-                                       SWIZZLED_TILE_SIZE_IN_BITS);
-
-            dirs >>= 3;
-        }
-
-        float x = pos.x / GRID_CELL_SIZE - 0.5f - i;
-        float y = pos.y / GRID_CELL_SIZE - 0.5f - j;
-        float z = pos.z / GRID_CELL_SIZE - 0.5f - k;
-
-        for (int c = 0; c < NUM_CHANNELS; ++c) {
-            float values[8];
-            for (int d = 0; d < 8; ++d) {
-                values[d] = GPU_GMEM_VOXELS[c][idxs[d]] * (mask & 1);
-            }
-
-            score += trilerp(x, y, z, values);
-            mask >>= 1;
-        }
-        */
-
-        // LIN_INTERPOLATE ----------
-
-        /*
-        LIN_INTERPOLATE with 8 threads per atom
-
-        int i = pos.x / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int j = pos.y / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-        int k = pos.z / GRID_CELL_SIZE - GRID_CELL_SIZE / 2;
-
-        int dir_idx = threadIdx.x % 8;
-
-        unsigned int dirs = 0b111110101100011010001000;
-        unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
-
-        // Clamp to border
-        int ni = max(0, min(i + (dir & 1u), GRID_WIDTH - 1));
-        int nj = max(0, min(j + ((dir & 2u) > 1), GRID_HEIGHT - 1));
-        int nk = max(0, min(k + ((dir & 4u) > 2), GRID_DEPTH - 1));
-
-        int idx = cuDock::Swizzling::
-                  get_swizzled_idx(ni,
-                                   nj,
-                                   nk,
-                                   SWIZZLED_PADDED_WIDTH,
-                                   SWIZZLED_PADDED_HEIGHT,
-                                   SWIZZLED_TILE_SIZE_IN_BITS);
-
-
-        for (int c = 0; c < NUM_CHANNELS; ++c) {
-            score += GPU_GMEM_VOXELS[c][idx] * (mask & 1);
-            mask >>= 1;
-        }
-
-        score = warp_reduce(score);
-        */
-
         return score;
     }
 
-    __device__ __inline__ float score_pose_tmem(float3 pos,
-                                                unsigned int mask)
+    __device__ float score_pose_tmem_native(float3 pos,
+                                            unsigned int mask)
     {
         float score = 0;
 
@@ -384,12 +248,12 @@ namespace
         return score;
     }
 
+    template<GPUMemType MEM_TYPE>
     __global__ void score_poses(const float3 *translations,
                                 const float3 *rotations,
                                 float *scores,
                                 int num_atoms,
                                 int block_size,
-                                enum GPUMemType mem_type,
                                 enum InterpolateType int_type)
     {
         // Broadcasting to warp
@@ -424,17 +288,14 @@ namespace
 
         __syncthreads();
 
-        if (mem_type == GPU_GMEM) {
-            if (idx < num_atoms) {
-                score += score_pose_gmem_lerp(pos, mask);
-            }
-
-        } else if (mem_type == GPU_GMEM_SWIZZLED) {
-            score += score_pose_gmem_swizzled(
+        if (MEM_TYPE != GPU_TMEM) {
+            score = score_pose_lerp<MEM_TYPE>(
                 idx, num_atoms, block_size, pos, mask);
+        } else {
 
-        } else if (mem_type == GPU_TMEM) {
-            score += score_pose_tmem(pos, mask);
+            if (idx < num_atoms) {
+                score = score_pose_tmem_native(pos, mask);
+            }
         }
 
         __syncthreads();
@@ -577,25 +438,39 @@ namespace cuDock
                                           &cell_size,
                                           sizeof(float)));
 
-        int tile_size_in_bits = 4;
-        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_TILE_SIZE_IN_BITS,
-                                          &tile_size_in_bits,
+        int tile_size = _pocket.get_swizzled_tile_size();
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_TILE_SIZE,
+                                          &tile_size,
                                           sizeof(int)));
 
-        int padded_size = _pocket.get_shape(0) +
-                          cuDock::Swizzling::
-                          get_padding_size(_pocket.get_shape(0),
-                                           tile_size_in_bits);
-        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_PADDED_WIDTH,
-                                          &padded_size,
+        int padded_width = _pocket.get_shape(0) +
+                           cuDock::Swizzling::
+                           get_padding_size(_pocket.get_shape(0),
+                                            tile_size);
+
+        int padded_height = _pocket.get_shape(1) +
+                            cuDock::Swizzling::
+                            get_padding_size(_pocket.get_shape(1),
+                                             tile_size);
+
+        int width_in_tiles = padded_width / tile_size;
+        int height_in_tiles = padded_height / tile_size;
+        int brick_size = tile_size * tile_size * tile_size;
+
+        int x_offset_mult = brick_size;
+        int y_offset_mult = brick_size * width_in_tiles;
+        int z_offset_mult = brick_size * width_in_tiles * height_in_tiles;
+
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_X_OFFSET_MULT,
+                                          &x_offset_mult,
                                           sizeof(int)));
 
-        padded_size = _pocket.get_shape(1) +
-                      cuDock::Swizzling::
-                      get_padding_size(_pocket.get_shape(1),
-                                       tile_size_in_bits);
-        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_PADDED_HEIGHT,
-                                          &padded_size,
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_Y_OFFSET_MULT,
+                                          &y_offset_mult,
+                                          sizeof(int)));
+
+        CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_Z_OFFSET_MULT,
+                                          &z_offset_mult,
                                           sizeof(int)));
     }
 
@@ -645,38 +520,35 @@ namespace cuDock
 
         if (_pocket.is_on_gpu(GPU_GMEM)) {
             CUDA_TIME_EXEC("_score_gmem", [&](){
-                score_poses<<<
+                score_poses<GPU_GMEM><<<
                     num_poses,
                     block_size>>>(_gpu_translations,
                                   _gpu_rotations,
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  GPU_GMEM,
                                   _pocket.get_interpolate());
             });
         } else if (_pocket.is_on_gpu(GPU_GMEM_SWIZZLED)) {
             CUDA_TIME_EXEC("_score_gmem_swizzled", [&](){
-                score_poses<<<
+                score_poses<GPU_GMEM_SWIZZLED><<<
                     num_poses,
                     block_size>>>(_gpu_translations,
                                   _gpu_rotations,
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  GPU_GMEM_SWIZZLED,
                                   _pocket.get_interpolate());
             });
         } else {
             CUDA_TIME_EXEC("_score_tmem", [&](){
-                score_poses<<<
+                score_poses<GPU_TMEM><<<
                     num_poses,
                     block_size>>>(_gpu_translations,
                                   _gpu_rotations,
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  GPU_TMEM,
                                   _pocket.get_interpolate());
             });
 

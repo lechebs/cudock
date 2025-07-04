@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -13,10 +14,65 @@
 
 namespace
 {
-    void _alloc_global(float *src[], float *dst[], int size, int num_buffers)
+    void set_alloc_prop(CUmemAllocationProp *prop,
+                        bool compressible)
     {
+        CUdevice device;
+        CUDADR_CHECK_ERR(cuCtxGetDevice(&device));
+
+        std::memset(prop, 0, sizeof(CUmemAllocationProp));
+
+        prop->type = CU_MEM_ALLOCATION_TYPE_PINNED;
+        prop->location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+        prop->location.id = device;
+        prop->allocFlags.compressionType =
+            compressible ? CU_MEM_ALLOCATION_COMP_GENERIC :
+                           CU_MEM_ALLOCATION_COMP_NONE;
+    }
+
+    size_t get_alloc_global_size(CUmemAllocationProp *prop,
+                                 int size,
+                                 int num_buffers)
+    {
+        size_t granularity = 0;
+        CUDADR_CHECK_ERR(cuMemGetAllocationGranularity(
+            &granularity, prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+        size_t global_size = sizeof(float) * size * num_buffers;
+        return ((global_size - 1) / granularity + 1) * granularity;
+    }
+
+    void _alloc_global(float *src[],
+                       float *dst[],
+                       int size,
+                       int num_buffers,
+                       bool compressible)
+    {
+
+        // Allocate a chunk of physical memory
+        CUmemAllocationProp prop;
+        set_alloc_prop(&prop, compressible);
+        size_t global_size = get_alloc_global_size(&prop, size, num_buffers);
+        CUmemGenericAllocationHandle alloc_handle;
+        CUDADR_CHECK_ERR(cuMemCreate(&alloc_handle, global_size, &prop, 0));
+
+        CUdeviceptr ptr;
+        // Reserve a virtual address range and map it to physical memory
+        CUDADR_CHECK_ERR(cuMemAddressReserve(&ptr, global_size, 0, 0, 0));
+        CUDADR_CHECK_ERR(cuMemMap(ptr, global_size, 0, alloc_handle, 0));
+
+        // Release physical allocation handle
+        CUDADR_CHECK_ERR(cuMemRelease(alloc_handle));
+
+        // Make the address accessible
+        CUmemAccessDesc access_desc = {};
+        access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+        access_desc.location.id = 0;
+        access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+        CUDADR_CHECK_ERR(cuMemSetAccess(ptr, global_size, &access_desc, 1));
+
         for (int i = 0; i < num_buffers; ++i) {
-            CUDA_CHECK_ERR(cudaMalloc(&dst[i], sizeof(float) * size));
+            dst[i] = (float *) ptr + size * i;
             CUDA_CHECK_ERR(cudaMemcpy(dst[i],
                                       src[i],
                                       sizeof(float) * size,
@@ -24,11 +80,17 @@ namespace
         }
     }
 
-    void _free_global(float *buffers[], int num_buffers)
+    void _free_global(float *ptr,
+                      int size,
+                      int num_buffers,
+                      bool compressible)
     {
-        for (int i = 0; i < num_buffers; ++i) {
-            CUDA_CHECK_ERR(cudaFree(buffers[i]));
-        }
+        CUmemAllocationProp prop;
+        set_alloc_prop(&prop, compressible);
+        size_t global_size = get_alloc_global_size(&prop, size, num_buffers);
+
+        CUDADR_CHECK_ERR(cuMemUnmap((CUdeviceptr) ptr, global_size));
+        CUDADR_CHECK_ERR(cuMemAddressFree((CUdeviceptr) ptr, global_size));
     }
 
     void _alloc_textures(float *src[],
@@ -62,7 +124,9 @@ namespace
         view_desc.depth = depth;
 
         for (int i = 0; i < num_textures; ++i) {
-            CUDA_CHECK_ERR(cudaMalloc3DArray(&dst_arrays[i], &fmt_desc, extent));
+            CUDA_CHECK_ERR(cudaMalloc3DArray(&dst_arrays[i],
+                                             &fmt_desc,
+                                             extent));
 
             cudaMemcpy3DParms parms = {0};
             parms.srcPtr = make_cudaPitchedPtr(src[i],
@@ -116,7 +180,8 @@ namespace cuDock
                 _alloc_global(_voxels.data(),
                               _gpu_global_voxels.data(),
                               get_size(),
-                              NUM_CHANNELS);
+                              NUM_CHANNELS,
+                              use_compressible_memory_);
 
             } else if (mem_type == GPU_GMEM_SWIZZLED) {
 
@@ -124,72 +189,15 @@ namespace cuDock
                 int h = get_shape(1);
                 int d = get_shape(2);
 
-                // TODO: make parameter
-                int tile_size_in_bits = 4;
-                int swizzled_size =
-                    Swizzling::get_swizzled_size(w, h, d, tile_size_in_bits);
-
-                // Testing compressible memory
-                /*
-                for (int c = 0; c < NUM_CHANNELS; ++c) {
-
-                CUmemAllocationProp prop = {};
-                prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-                prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-                prop.location.id = 0;
-                prop.allocFlags.compressionType =
-                    CU_MEM_ALLOCATION_COMP_GENERIC;
-
-                size_t granularity = 0;
-                CUresult res = cuMemGetAllocationGranularity(
-                    &granularity,
-                    &prop,
-                    CU_MEM_ALLOC_GRANULARITY_MINIMUM);
-                std::cout << "cuMemGetAllocationGranularity: " << res << std::endl;
-
-                size_t size = sizeof(float) * swizzled_size;
-                size_t padded_size = ((size - 1) / granularity + 1) *
-                                     granularity;
-
-                CUmemGenericAllocationHandle allocHandle;
-                res = cuMemCreate(&allocHandle, padded_size, &prop, 0);
-                std::cout << "cuMemCreate: " << res << std::endl;
-
-                cuMemGetAllocationPropertiesFromHandle(&prop,
-                                                       allocHandle);
-
-                if (prop.allocFlags.compressionType ==
-                    CU_MEM_ALLOCATION_COMP_GENERIC)
-                {
-                    std::cout << "Obtained compressible memory" << std::endl;
-                }
-
-                CUdeviceptr ptr;
-                res = cuMemAddressReserve(&ptr, padded_size, 0, 0, 0);
-                std::cout << "cuMemAddressReserve: " << res << std::endl;
-
-                res = cuMemMap(ptr, padded_size, 0, allocHandle, 0);
-                std::cout << "cuMemMap: " << res << std::endl;
-
-                // Make the address accessible
-                CUmemAccessDesc accessDesc = {};
-                accessDesc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-                accessDesc.location.id = 0;
-                accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-
-                cuMemSetAccess(ptr, padded_size, &accessDesc, 1);
-                _gpu_global_voxels[c] = (float *) ptr;
-                }
-                    */
+                int swizzled_size = Swizzling::get_swizzled_size(
+                    w, h, d, get_swizzled_tile_size());
 
                 std::array<float *, NUM_CHANNELS> voxels_swizzled;
                 for (int c = 0; c < NUM_CHANNELS; ++c) {
                     voxels_swizzled[c] = new float[swizzled_size];
                     Swizzling::
-                    to_swizzled_format(w,
-                                       h,
-                                       d,
-                                       tile_size_in_bits,
+                    to_swizzled_format(w, h, d,
+                                       get_swizzled_tile_size(),
                                        _voxels[c],
                                        voxels_swizzled[c]);
                 }
@@ -197,7 +205,8 @@ namespace cuDock
                 _alloc_global(voxels_swizzled.data(),
                               _gpu_global_voxels.data(),
                               swizzled_size,
-                              NUM_CHANNELS);
+                              NUM_CHANNELS,
+                              use_compressible_memory_);
 
                 for (int c = 0; c < NUM_CHANNELS; ++c) {
                     delete[] voxels_swizzled[c];
@@ -222,8 +231,20 @@ namespace cuDock
         if (_is_on_gpu[mem_type]) {
             _is_on_gpu[mem_type] = false;
 
-            if (mem_type == GPU_GMEM|| mem_type == GPU_GMEM_SWIZZLED) {
-                _free_global(_gpu_global_voxels.data(), NUM_CHANNELS);
+            if (mem_type == GPU_GMEM) {
+                _free_global(_gpu_global_voxels[0],
+                             get_size(),
+                             NUM_CHANNELS,
+                             use_compressible_memory_);
+            } else if (mem_type == GPU_GMEM_SWIZZLED) {
+                _free_global(_gpu_global_voxels[0],
+                             Swizzling::get_swizzled_size(
+                                get_shape(0),
+                                get_shape(1),
+                                get_shape(2),
+                                get_swizzled_tile_size()),
+                             NUM_CHANNELS,
+                             use_compressible_memory_);
             } else if (mem_type == GPU_TMEM) {
                 _free_textures(_gpu_array_voxels.data(),
                                _gpu_texture_voxels.data(),

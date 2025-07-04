@@ -100,6 +100,7 @@ target_link_libraries(main CUDA::cudart_static CUDA::cuda_driver)
 target_compile_options(main PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
                        -gencode=arch=compute_89,code=[sm_89,compute_89]
                        -use_fast_math
+                       -lineinfo
                        >)
 
 #########################################################################
