@@ -63,9 +63,9 @@ namespace cuDock
                              int z_offset_mult,
                              int tile_size)
         {
-            int tile_x = x / 128;
-            int tile_y = y / 128;
-            int tile_z = z / 128;
+            int tile_x = x / 4;
+            int tile_y = y / 4;
+            int tile_z = z / 4;
 
             // Tile offset
             int dst_offset = tile_z * z_offset_mult +

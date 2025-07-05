@@ -117,6 +117,7 @@ namespace cuDock
         off_gpu(GPU_GMEM);
         off_gpu(GPU_GMEM_SWIZZLED);
         off_gpu(GPU_TMEM);
+        off_gpu(GPU_TMEM_PACKED);
     }
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point)
@@ -311,6 +312,12 @@ namespace cuDock
         _shape[2] = new_shape[2];
 
         _cell_size = user_cell_size;
+
+        /*
+        for (int i = 0; i < get_size(); ++i) {
+            std::cout << _voxels[3][i] << std::endl;
+        }
+        */
 
         delete[] points_count;
     }

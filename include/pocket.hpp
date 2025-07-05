@@ -90,7 +90,7 @@ namespace cuDock
         std::array<cudaArray_t, NUM_CHANNELS> _gpu_array_voxels;
         std::array<cudaTextureObject_t, NUM_CHANNELS> _gpu_texture_voxels;
 
-        std::array<bool, 3> _is_on_gpu = { 0, 0, 0 };
+        std::array<bool, 4> _is_on_gpu = { 0, 0, 0, 0 };
 
         enum InterpolateType int_type_ = NN_INTERPOLATE;
 

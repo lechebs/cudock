@@ -143,6 +143,27 @@ namespace
     }
 
     template<GPUMemType MEM_TYPE>
+    __device__ __forceinline__
+    float4 voxel_fetch4(int c, int i, int j, int k)
+    {
+        if constexpr (MEM_TYPE == GPU_GMEM) {
+            int idx = k * GRID_WIDTH * GRID_HEIGHT +
+                      j * GRID_WIDTH + i;
+            return ((float4 *) GPU_GMEM_VOXELS[c])[idx];
+
+        } else if (MEM_TYPE == GPU_GMEM_SWIZZLED) {
+            int idx = cuDock::Swizzling::
+                      get_swizzled_idx(i, j, k,
+                                       SWIZZLED_X_OFFSET_MULT,
+                                       SWIZZLED_Y_OFFSET_MULT,
+                                       SWIZZLED_Z_OFFSET_MULT,
+                                       SWIZZLED_TILE_SIZE);
+            return ((float4 *) GPU_GMEM_VOXELS[c])[idx];
+        }
+    }
+
+
+    template<GPUMemType MEM_TYPE>
     __device__ float score_pose_nn(float3 pos, unsigned int mask)
     {
         float score = 0;
@@ -208,8 +229,26 @@ namespace
             y = y / GRID_CELL_SIZE - 0.5f - jj;
             z = z / GRID_CELL_SIZE - 0.5f - kk;
 
-            for (int c = 0; c < NUM_CHANNELS; ++c) {
-                float v1 = active ? voxel_fetch<MEM_TYPE>(c, ni, nj, nk) : 0;
+            for (int c = 0; c < 2; ++c) {
+            //for (int c = 0; c < NUM_CHANNELS; ++c) {
+
+                float4 ch = voxel_fetch4<MEM_TYPE>(c, ni, nj, nk);
+                float values[4];
+
+                values[0] = ch.x;
+                values[1] = ch.y;
+                values[2] = ch.z;
+                values[3] = ch.w;
+
+                for (int v = 0; v < 4; ++v) {
+                //unsigned int active_mask = __ballot_sync(0xffffffff,
+                //                                         active && (m & 1));
+                //if (active && (m & 1)) {
+
+                //float v1 = //(active && (m & 1)) ?
+                //    active ?
+                //    voxel_fetch<MEM_TYPE>(c, ni, nj, nk) : 0;
+                float v1 = active ? values[c] : 0;
                 float v2 = __shfl_down_sync(0xffffffff, v1, 1, 2);
 
                 float v12 = lerp(x, v1, v2);
@@ -220,6 +259,8 @@ namespace
 
                 score += lerp(z, v1234, v5678) * (m & 1);
                 m >>= 1;
+
+                }
             }
         }
 
@@ -230,6 +271,7 @@ namespace
         return score;
     }
 
+    template<GPUMemType MEM_TYPE>
     __device__ float score_pose_tmem_native(float3 pos,
                                             unsigned int mask)
     {
@@ -239,14 +281,31 @@ namespace
         float ty = pos.y / GRID_CELL_SIZE;
         float tz = pos.z / GRID_CELL_SIZE;
 
-        for (int c = 0; c < NUM_CHANNELS; ++c) {
-            score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz) *
-                     (mask & 1);
-            mask >>= 1;
+        if constexpr (MEM_TYPE == GPU_TMEM) {
+            for (int c = 0; c < NUM_CHANNELS; ++c) {
+                if ((mask & 1) > 0) {
+                score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz);// *
+                         //(mask & 1);
+                }
+                mask >>= 1;
+            }
+
+        } else {
+            for (int c = 0; c < NUM_CHANNELS / 4; ++c) {
+                float4 values = tex3D<float4>(GPU_TMEM_VOXELS[c], tx, ty, tz);
+
+                score += values.x * (mask & 1);
+                score += values.y * ((mask >> 1) & 1);
+                score += values.z * ((mask >> 2) & 1);
+                score += values.w * ((mask >> 3) & 1);
+
+                mask >>= 4;
+            }
         }
 
         return score;
     }
+
 
     template<GPUMemType MEM_TYPE>
     __global__ void score_poses(const float3 *translations,
@@ -288,13 +347,12 @@ namespace
 
         __syncthreads();
 
-        if (MEM_TYPE != GPU_TMEM) {
+        if (MEM_TYPE == GPU_GMEM || MEM_TYPE == GPU_GMEM_SWIZZLED) {
             score = score_pose_lerp<MEM_TYPE>(
                 idx, num_atoms, block_size, pos, mask);
         } else {
-
             if (idx < num_atoms) {
-                score = score_pose_tmem_native(pos, mask);
+                score = score_pose_tmem_native<MEM_TYPE>(pos, mask);
             }
         }
 
@@ -509,10 +567,13 @@ namespace cuDock
                 sizeof(float *) * Pocket::NUM_CHANNELS));
         } else {
             // Copy pocket voxels tmem pointers to constant memory
+            int num_textures = _pocket.is_on_gpu(GPU_TMEM_PACKED) ?
+                               Pocket::NUM_CHANNELS / 4 :
+                               Pocket::NUM_CHANNELS;
             CUDA_CHECK_ERR(cudaMemcpyToSymbol(
                 GPU_TMEM_VOXELS,
                 _pocket.get_gpu_tmem_voxels().data(),
-                sizeof(cudaTextureObject_t) * Pocket::NUM_CHANNELS));
+                sizeof(cudaTextureObject_t) * num_textures));
         }
 
         int num_atoms = _ligand.get_num_atoms();
@@ -540,7 +601,7 @@ namespace cuDock
                                   block_size,
                                   _pocket.get_interpolate());
             });
-        } else {
+        } else if (_pocket.is_on_gpu(GPU_TMEM)) {
             CUDA_TIME_EXEC("_score_tmem", [&](){
                 score_poses<GPU_TMEM><<<
                     num_poses,
@@ -551,7 +612,17 @@ namespace cuDock
                                   block_size,
                                   _pocket.get_interpolate());
             });
-
+        } else if (_pocket.is_on_gpu(GPU_TMEM_PACKED)) {
+            CUDA_TIME_EXEC("_score_tmem_packed", [&](){
+                score_poses<GPU_TMEM_PACKED><<<
+                    num_poses,
+                    block_size>>>(_gpu_translations,
+                                  _gpu_rotations,
+                                  _gpu_scores,
+                                  num_atoms,
+                                  block_size,
+                                  _pocket.get_interpolate());
+            });
         }
     }
 }

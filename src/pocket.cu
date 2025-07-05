@@ -14,6 +14,18 @@
 
 namespace
 {
+    void pack_channels(float *channels[],
+                       float *dst,
+                       int channel_offset,
+                       int size)
+    {
+        for (int j = 0; j < size; ++j) {
+            for (int k = 0; k < 4; ++k) {
+                dst[j * 4 + k] = channels[channel_offset + k][j];
+            }
+        }
+    }
+
     void set_alloc_prop(CUmemAllocationProp *prop,
                         bool compressible)
     {
@@ -71,12 +83,28 @@ namespace
         access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
         CUDADR_CHECK_ERR(cuMemSetAccess(ptr, global_size, &access_desc, 1));
 
-        for (int i = 0; i < num_buffers; ++i) {
-            dst[i] = (float *) ptr + size * i;
+        //for (int i = 0; i < num_buffers; ++i) {
+        for (int i = 0; i < 2; ++i) {
+            //dst[i] = (float *) ptr + size * i;
+            dst[i] = (float *) ptr + size * i * 4;
+
+            float *packed_src = new float[size * 4];
+            pack_channels(src, packed_src, i * 4, size);
+
+            /*
             CUDA_CHECK_ERR(cudaMemcpy(dst[i],
                                       src[i],
                                       sizeof(float) * size,
                                       cudaMemcpyHostToDevice));
+            */
+
+            CUDA_CHECK_ERR(cudaMemcpy(dst[i],
+                                      packed_src,
+                                      sizeof(float) * size * 4,
+                                      cudaMemcpyHostToDevice));
+
+
+            delete[] packed_src;
         }
     }
 
@@ -96,16 +124,25 @@ namespace
     void _alloc_textures(float *src[],
                          cudaArray_t dst_arrays[],
                          cudaTextureObject_t dst_textures[],
-                         int num_textures,
+                         int num_channels,
                          int width,
                          int height,
                          int depth,
-                         bool lerp)
+                         bool lerp,
+                         bool packed)
     {
         cudaResourceDesc res_desc = {};
         res_desc.resType = cudaResourceTypeArray;
-        cudaChannelFormatDesc fmt_desc =
-            cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
+
+        cudaChannelFormatDesc fmt_desc;
+        if (packed) {
+            fmt_desc = cudaCreateChannelDesc(
+                32, 32, 32, 32, cudaChannelFormatKindFloat);
+        } else {
+            fmt_desc = cudaCreateChannelDesc(
+                32, 0, 0, 0, cudaChannelFormatKindFloat);
+        }
+
         cudaExtent extent = make_cudaExtent(width, height, depth);
 
         cudaTextureDesc tex_desc = {};
@@ -115,28 +152,46 @@ namespace
         //tex_desc.normalizedCoords = false;
         tex_desc.filterMode = lerp ? cudaFilterModeLinear :
                                      cudaFilterModePoint;
-        //tex_desc.disableTrilinearOptimization = true;
+        tex_desc.disableTrilinearOptimization = true;
 
         cudaResourceViewDesc view_desc = {};
-        view_desc.format = cudaResViewFormatFloat1;
+        view_desc.format = packed ? cudaResViewFormatFloat4 :
+                                    cudaResViewFormatFloat1;
         view_desc.width = width;
         view_desc.height = height;
         view_desc.depth = depth;
+
+        int num_textures = packed ? num_channels / 4 : num_channels;
 
         for (int i = 0; i < num_textures; ++i) {
             CUDA_CHECK_ERR(cudaMalloc3DArray(&dst_arrays[i],
                                              &fmt_desc,
                                              extent));
 
+            float *src_buff = src[i];
+
+            if (packed) {
+                // Pack 4 channels
+                int size = width * height * depth;
+                float *packed_src = new float[size * 4];
+                pack_channels(src, packed_src, i * 4, size);
+                src_buff = packed_src;
+            }
+
             cudaMemcpy3DParms parms = {0};
-            parms.srcPtr = make_cudaPitchedPtr(src[i],
-                                               width * sizeof(float),
+            parms.srcPtr = make_cudaPitchedPtr(src_buff,
+                                               width * sizeof(float) *
+                                                   (packed ? 4 : 1),
                                                width,
                                                height);
             parms.dstArray = dst_arrays[i];
             parms.extent = extent;
             parms.kind = cudaMemcpyHostToDevice;
             CUDA_CHECK_ERR(cudaMemcpy3D(&parms));
+
+            if (packed) {
+                delete[] src_buff;
+            }
 
             res_desc.res.array.array = dst_arrays[i];
             CUDA_CHECK_ERR(cudaCreateTextureObject(&dst_textures[i],
@@ -148,8 +203,11 @@ namespace
 
     void _free_textures(cudaArray_t arrays[],
                         cudaTextureObject_t textures[],
-                        int num_textures)
+                        int num_channels,
+                        bool packed)
     {
+        int num_textures = packed ? num_channels / 4 : num_channels;
+
         for (int i = 0; i < num_textures; ++i) {
             CUDA_CHECK_ERR(cudaFreeArray(arrays[i]));
             CUDA_CHECK_ERR(cudaDestroyTextureObject(textures[i]));
@@ -163,7 +221,8 @@ namespace cuDock
     {
         return _is_on_gpu[GPU_GMEM] ||
                _is_on_gpu[GPU_GMEM_SWIZZLED] ||
-               _is_on_gpu[GPU_TMEM];
+               _is_on_gpu[GPU_TMEM] ||
+               _is_on_gpu[GPU_TMEM_PACKED];
     }
 
     bool Pocket::is_on_gpu(enum GPUMemType mem_type) const
@@ -212,7 +271,7 @@ namespace cuDock
                     delete[] voxels_swizzled[c];
                 }
 
-            } else if (mem_type == GPU_TMEM) {
+            } else if (mem_type == GPU_TMEM || mem_type == GPU_TMEM_PACKED) {
                 _alloc_textures(_voxels.data(),
                                 _gpu_array_voxels.data(),
                                 _gpu_texture_voxels.data(),
@@ -220,7 +279,8 @@ namespace cuDock
                                 get_shape(0),
                                 get_shape(1),
                                 get_shape(2),
-                                get_interpolate() == LIN_INTERPOLATE);
+                                get_interpolate() == LIN_INTERPOLATE,
+                                mem_type == GPU_TMEM_PACKED);
             }
         }
 
@@ -245,10 +305,11 @@ namespace cuDock
                                 get_swizzled_tile_size()),
                              NUM_CHANNELS,
                              use_compressible_memory_);
-            } else if (mem_type == GPU_TMEM) {
+            } else if (mem_type == GPU_TMEM || mem_type == GPU_TMEM_PACKED) {
                 _free_textures(_gpu_array_voxels.data(),
                                _gpu_texture_voxels.data(),
-                               NUM_CHANNELS);
+                               NUM_CHANNELS,
+                               mem_type == GPU_TMEM_PACKED);
             }
         }
     }

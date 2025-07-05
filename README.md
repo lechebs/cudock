@@ -53,3 +53,8 @@ If you omit the command, you will have the executable in `build/src` folder.
  Looks like my custom swizzle works better for bigger grids (by tweaking the tile size), and compression is also even better for larger grids (which i assume are thus sparser, so probably because of that). Nevertheless for a spacing ~0.375A they behave mostly the same, even with compression. I should try to collaboratively fetch the texture and interpolate in sw to see if that is better (not faster).
 
 
+Packing is always faster than individual channels (when fetching all channels), and 4 channels seems to be the best option, 8 channel packing is slower than 4 on global memory. Global memory is on pair for 3 channel packing against native float4 tmem.
+But going back to float channels, native tmem with conditional loads performs better than anything else, while conditional load in global memory does not, but try again there, cause the compute overhead doesn't seem to cause that much divergence. 
+
+I guess that precomputed grids stored in single channel textures, conditionally loaded based on the atom type are going to be the best option out there.
+But channel packing on swizzled global memory is a fair option if higher precision interpolation is needed.

@@ -38,7 +38,7 @@
 
 
 
-enum GPUMemType { GPU_GMEM, GPU_GMEM_SWIZZLED, GPU_TMEM };
+enum GPUMemType { GPU_GMEM, GPU_GMEM_SWIZZLED, GPU_TMEM, GPU_TMEM_PACKED };
 enum InterpolateType { NN_INTERPOLATE, LIN_INTERPOLATE };
 
 template<typename T> void CUDA_TIME_EXEC(const std::string &tag,

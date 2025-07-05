@@ -41,7 +41,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<float> ref_scores;
     std::vector<float> res_scores;
 
-    pocket.set_swizzled_tile_size(128);
+    pocket.set_swizzled_tile_size(4);
     pocket.use_compressible_memory(false);
 
     docker.to_gpu();
@@ -60,14 +60,17 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     pocket.off_gpu(GPU_GMEM);
     pocket.to_gpu(GPU_GMEM_SWIZZLED);
     docker.run();
-    docker.get_scores(res_scores);
-
     pocket.off_gpu(GPU_GMEM_SWIZZLED);
+
     pocket.to_gpu(GPU_TMEM);
     docker.run();
     docker.get_scores(ref_scores);
 
-    /*
+    pocket.off_gpu(GPU_TMEM);
+    pocket.to_gpu(GPU_TMEM_PACKED);
+    docker.run();
+    docker.get_scores(res_scores);
+
     std::cout << std::fixed;
 
     // Validate results
@@ -82,7 +85,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
                       << res_score << ")" << std::endl;
         }
     }
-    */
 
     return EXIT_SUCCESS;
 }
