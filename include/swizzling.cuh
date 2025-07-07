@@ -54,6 +54,8 @@ namespace cuDock
                    expand_bits(z, tile_size);
         }
 
+#define TILE_SIZE 32
+
         __host__ __device__ __forceinline__
         int get_swizzled_idx(int x,
                              int y,
@@ -63,14 +65,20 @@ namespace cuDock
                              int z_offset_mult,
                              int tile_size)
         {
-            int tile_x = x / 4;
-            int tile_y = y / 4;
-            int tile_z = z / 4;
+            int tile_x = x / TILE_SIZE;
+            int tile_y = y / TILE_SIZE;
+            int tile_z = z / TILE_SIZE;
 
             // Tile offset
             int dst_offset = tile_z * z_offset_mult +
                              tile_y * y_offset_mult +
                              tile_x * x_offset_mult;
+
+            /*
+            return dst_offset + (TILE_SIZE * TILE_SIZE * (z % TILE_SIZE) +
+                                 TILE_SIZE * (y % TILE_SIZE) +
+                                 (x % TILE_SIZE));
+            */
 
             return morton_encode(x, y, z, tile_size) + dst_offset;
         }

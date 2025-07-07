@@ -42,6 +42,9 @@ namespace cuDock
 
         void use_compressible_memory(bool flag);
 
+        void set_packed(bool flag);
+        bool is_packed() const;
+
         const std::array<float *, NUM_CHANNELS> &get_gpu_gmem_voxels() const;
 
         const std::array<cudaTextureObject_t, NUM_CHANNELS>
@@ -90,12 +93,13 @@ namespace cuDock
         std::array<cudaArray_t, NUM_CHANNELS> _gpu_array_voxels;
         std::array<cudaTextureObject_t, NUM_CHANNELS> _gpu_texture_voxels;
 
-        std::array<bool, 4> _is_on_gpu = { 0, 0, 0, 0 };
+        std::array<bool, 3> _is_on_gpu = { 0, 0, 0 };
 
         enum InterpolateType int_type_ = NN_INTERPOLATE;
 
         int swizzled_tile_size_ = 32;
         bool use_compressible_memory_ = false;
+        bool is_packed_ = false;
     };
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point);

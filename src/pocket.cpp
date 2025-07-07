@@ -57,6 +57,16 @@ namespace cuDock
         use_compressible_memory_ = flag;
     }
 
+    void Pocket::set_packed(bool flag)
+    {
+        is_packed_ = flag;
+    }
+
+    bool Pocket::is_packed() const
+    {
+        return is_packed_;
+    }
+
     float Pocket::get_cell_size() const
     {
         return _cell_size;
@@ -117,7 +127,6 @@ namespace cuDock
         off_gpu(GPU_GMEM);
         off_gpu(GPU_GMEM_SWIZZLED);
         off_gpu(GPU_TMEM);
-        off_gpu(GPU_TMEM_PACKED);
     }
 
     std::ostream &operator<<(std::ostream &os, const Pocket::Point &point)
@@ -184,8 +193,8 @@ namespace cuDock
         float max_pos[3] = { -inf, -inf, -inf };
 
         // Setting cell size back to default
-        float user_cell_size = _cell_size;
-        _cell_size = BASE_CELL_SIZE;
+        //float user_cell_size = _cell_size;
+        //_cell_size = BASE_CELL_SIZE;
 
         // Computing bounding box
         for (const Pocket::Point &p : points) {
@@ -246,6 +255,7 @@ namespace cuDock
 
         // Scale the grids to the user defined size
         // using linear interpolation
+        /*
 
         int new_shape[3];
         for (int i = 0; i < 3; ++i) {
@@ -312,6 +322,7 @@ namespace cuDock
         _shape[2] = new_shape[2];
 
         _cell_size = user_cell_size;
+        */
 
         /*
         for (int i = 0; i < get_size(); ++i) {

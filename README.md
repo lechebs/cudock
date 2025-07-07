@@ -23,7 +23,7 @@ If you omit the command, you will have the executable in `build/src` folder.
 ## TODO
  - custom software swizzling in global memory (done)
  - evaluate __ldg on global memory (it's already done)
- - channel packing (e.g. two float4 textures and global "float8")
+ - channel packing (e.g. two float4 textures and global "float8") (done, float4 better)
  - software interpolation on global memory (done)
  - half precision (possibly with tensor cores reduction?)
  - memory compression (done)
@@ -58,3 +58,10 @@ But going back to float channels, native tmem with conditional loads performs be
 
 I guess that precomputed grids stored in single channel textures, conditionally loaded based on the atom type are going to be the best option out there.
 But channel packing on swizzled global memory is a fair option if higher precision interpolation is needed.
+
+When packing channels, the performance between the swizzled and non-swizzled get closer, probably cause some locality is lost since now cache lines contain more data related to a single voxel.
+
+- future: reduced precision to store (cuda supports fp16 textures)
+
+
+spatial hashing?

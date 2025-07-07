@@ -58,7 +58,8 @@ namespace
                        float *dst[],
                        int size,
                        int num_buffers,
-                       bool compressible)
+                       bool compressible,
+                       bool packed)
     {
 
         // Allocate a chunk of physical memory
@@ -83,28 +84,25 @@ namespace
         access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
         CUDADR_CHECK_ERR(cuMemSetAccess(ptr, global_size, &access_desc, 1));
 
-        //for (int i = 0; i < num_buffers; ++i) {
-        for (int i = 0; i < 2; ++i) {
-            //dst[i] = (float *) ptr + size * i;
-            dst[i] = (float *) ptr + size * i * 4;
+        int num_alloc = packed ? num_buffers / 4 : num_buffers;
 
-            float *packed_src = new float[size * 4];
-            pack_channels(src, packed_src, i * 4, size);
+        for (int i = 0; i < num_alloc; ++i) {
+            dst[i] = (float *) ptr + size * i * (packed ? 4 : 1);
 
-            /*
-            CUDA_CHECK_ERR(cudaMemcpy(dst[i],
-                                      src[i],
-                                      sizeof(float) * size,
-                                      cudaMemcpyHostToDevice));
-            */
+            float *curr_src = src[i];
+            if (packed) {
+                curr_src = new float[size * 4];
+                pack_channels(src, curr_src, i * 4, size);
+            }
 
             CUDA_CHECK_ERR(cudaMemcpy(dst[i],
-                                      packed_src,
-                                      sizeof(float) * size * 4,
+                                      curr_src,
+                                      sizeof(float) * size * (packed ? 4 : 1),
                                       cudaMemcpyHostToDevice));
 
-
-            delete[] packed_src;
+            if (packed) {
+                delete[] curr_src;
+            }
         }
     }
 
@@ -221,8 +219,7 @@ namespace cuDock
     {
         return _is_on_gpu[GPU_GMEM] ||
                _is_on_gpu[GPU_GMEM_SWIZZLED] ||
-               _is_on_gpu[GPU_TMEM] ||
-               _is_on_gpu[GPU_TMEM_PACKED];
+               _is_on_gpu[GPU_TMEM];
     }
 
     bool Pocket::is_on_gpu(enum GPUMemType mem_type) const
@@ -240,7 +237,8 @@ namespace cuDock
                               _gpu_global_voxels.data(),
                               get_size(),
                               NUM_CHANNELS,
-                              use_compressible_memory_);
+                              use_compressible_memory_,
+                              is_packed());
 
             } else if (mem_type == GPU_GMEM_SWIZZLED) {
 
@@ -265,13 +263,14 @@ namespace cuDock
                               _gpu_global_voxels.data(),
                               swizzled_size,
                               NUM_CHANNELS,
-                              use_compressible_memory_);
+                              use_compressible_memory_,
+                              is_packed());
 
                 for (int c = 0; c < NUM_CHANNELS; ++c) {
                     delete[] voxels_swizzled[c];
                 }
 
-            } else if (mem_type == GPU_TMEM || mem_type == GPU_TMEM_PACKED) {
+            } else if (mem_type == GPU_TMEM) {
                 _alloc_textures(_voxels.data(),
                                 _gpu_array_voxels.data(),
                                 _gpu_texture_voxels.data(),
@@ -280,7 +279,7 @@ namespace cuDock
                                 get_shape(1),
                                 get_shape(2),
                                 get_interpolate() == LIN_INTERPOLATE,
-                                mem_type == GPU_TMEM_PACKED);
+                                is_packed());
             }
         }
 
@@ -305,11 +304,11 @@ namespace cuDock
                                 get_swizzled_tile_size()),
                              NUM_CHANNELS,
                              use_compressible_memory_);
-            } else if (mem_type == GPU_TMEM || mem_type == GPU_TMEM_PACKED) {
+            } else if (mem_type == GPU_TMEM) {
                 _free_textures(_gpu_array_voxels.data(),
                                _gpu_texture_voxels.data(),
                                NUM_CHANNELS,
-                               mem_type == GPU_TMEM_PACKED);
+                               is_packed());
             }
         }
     }

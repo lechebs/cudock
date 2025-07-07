@@ -11,7 +11,7 @@
 #include "ligand.hpp"
 
 #define WARP_SIZE 32
-#define BLOCK_SIZE 128
+#define BLOCK_SIZE 64
 
 namespace
 {
@@ -162,6 +162,19 @@ namespace
         }
     }
 
+    __device__ __forceinline__
+    float collab_trilerp(float x, float y, float z, float v1)
+    {
+      float v2 = __shfl_down_sync(0xffffffff, v1, 1, 2);
+
+      float v12 = lerp(x, v1, v2);
+      float v34 = __shfl_down_sync(0xffffffff, v12, 2, 4);
+
+      float v1234 = lerp(y, v12, v34);
+      float v5678 = __shfl_down_sync(0xffffffff, v1234, 4, 8);
+
+      return lerp(z, v1234, v5678);
+    }
 
     template<GPUMemType MEM_TYPE>
     __device__ float score_pose_nn(float3 pos, unsigned int mask)
@@ -180,7 +193,7 @@ namespace
         return score;
     }
 
-    template<GPUMemType MEM_TYPE>
+    template<GPUMemType MEM_TYPE, bool PACKED>
     __device__ float score_pose_lerp(int atom_idx,
                                      int num_atoms,
                                      int block_size,
@@ -210,68 +223,62 @@ namespace
             bool active = src_lane + threadIdx.x / WARP_SIZE *
                                      WARP_SIZE < num_atoms;
 
-            if (active) {
-                int dir_idx = threadIdx.x % 8;
-                unsigned int dirs = 0b111110101100011010001000;
-                unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
+            int dir_idx = threadIdx.x % 8;
+            unsigned int dirs = 0b111110101100011010001000;
+            unsigned dir = (dirs >> (3 * dir_idx)) & 7u;
 
+            unsigned int xm = dir & 1;
+            unsigned int ym = (dir >> 1) & 1;
+            unsigned int zm = (dir >> 2) & 1;
+
+            if (active) {
                 // Clamp to border
-                ni = max(0, min(ii + (dir & 1u), GRID_WIDTH - 1));
-                nj = max(0, min(jj + ((dir >> 1) & 1u), GRID_HEIGHT - 1));
-                nk = max(0, min(kk + ((dir >> 2) & 1u), GRID_DEPTH - 1));
+                ni = max(0, min(ii + xm, GRID_WIDTH - 1));
+                nj = max(0, min(jj + ym, GRID_HEIGHT - 1));
+                nk = max(0, min(kk + zm, GRID_DEPTH - 1));
             }
 
             float x = __shfl_sync(0xffffffff, pos.x, src_lane);
             float y = __shfl_sync(0xffffffff, pos.y, src_lane);
             float z = __shfl_sync(0xffffffff, pos.z, src_lane);
 
+            if (!active) {
+                continue;
+            }
+
             x = x / GRID_CELL_SIZE - 0.5f - ii;
             y = y / GRID_CELL_SIZE - 0.5f - jj;
             z = z / GRID_CELL_SIZE - 0.5f - kk;
 
-            for (int c = 0; c < 2; ++c) {
-            //for (int c = 0; c < NUM_CHANNELS; ++c) {
+            float w = fabsf(((xm == 0) - x) *
+                            ((ym == 0) - y) *
+                            ((zm == 0) - z));
 
-                float4 ch = voxel_fetch4<MEM_TYPE>(c, ni, nj, nk);
-                float values[4];
+            if constexpr (PACKED)  {
+                for (int c = 0; c < NUM_CHANNELS / 4; ++c) {
 
-                values[0] = ch.x;
-                values[1] = ch.y;
-                values[2] = ch.z;
-                values[3] = ch.w;
+                    float4 ch = voxel_fetch4<MEM_TYPE>(c, ni, nj, nk);
+                    score += w * (ch.x * (m & 1) +
+                             ch.y * ((m >> 1) & 1) +
+                             ch.z * ((m >> 2) & 1) +
+                             ch.w * ((m >> 3) & 1));
 
-                for (int v = 0; v < 4; ++v) {
-                //unsigned int active_mask = __ballot_sync(0xffffffff,
-                //                                         active && (m & 1));
-                //if (active && (m & 1)) {
+                    m >>= 4;
+                }
 
-                //float v1 = //(active && (m & 1)) ?
-                //    active ?
-                //    voxel_fetch<MEM_TYPE>(c, ni, nj, nk) : 0;
-                float v1 = active ? values[c] : 0;
-                float v2 = __shfl_down_sync(0xffffffff, v1, 1, 2);
-
-                float v12 = lerp(x, v1, v2);
-                float v34 = __shfl_down_sync(0xffffffff, v12, 2, 4);
-
-                float v1234 = lerp(y, v12, v34);
-                float v5678 = __shfl_down_sync(0xffffffff, v1234, 4, 8);
-
-                score += lerp(z, v1234, v5678) * (m & 1);
-                m >>= 1;
-
+            } else {
+                for (int c = 0; c < NUM_CHANNELS; ++c) {
+                    score += w * voxel_fetch<MEM_TYPE>(c, ni, nj, nk) *
+                             (m & 1);
+                    m >>= 1;
                 }
             }
-        }
-
-        if (threadIdx.x % 8 != 0) {
-            score = 0;
         }
 
         return score;
     }
 
-    template<GPUMemType MEM_TYPE>
+    template<bool PACKED>
     __device__ float score_pose_tmem_native(float3 pos,
                                             unsigned int mask)
     {
@@ -281,12 +288,12 @@ namespace
         float ty = pos.y / GRID_CELL_SIZE;
         float tz = pos.z / GRID_CELL_SIZE;
 
-        if constexpr (MEM_TYPE == GPU_TMEM) {
+        if constexpr (!PACKED) {
             for (int c = 0; c < NUM_CHANNELS; ++c) {
-                if ((mask & 1) > 0) {
-                score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz);// *
-                         //(mask & 1);
-                }
+                //if ((mask & 1) > 0) {
+                    score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz) *
+                             (mask & 1);
+                //        }
                 mask >>= 1;
             }
 
@@ -313,7 +320,8 @@ namespace
                                 float *scores,
                                 int num_atoms,
                                 int block_size,
-                                enum InterpolateType int_type)
+                                enum InterpolateType int_type,
+                                bool packed)
     {
         // Broadcasting to warp
         float3 t = translations[blockIdx.x];
@@ -347,12 +355,20 @@ namespace
 
         __syncthreads();
 
-        if (MEM_TYPE == GPU_GMEM || MEM_TYPE == GPU_GMEM_SWIZZLED) {
-            score = score_pose_lerp<MEM_TYPE>(
-                idx, num_atoms, block_size, pos, mask);
+        if (MEM_TYPE != GPU_TMEM) {
+            if (packed) {
+                score = score_pose_lerp<MEM_TYPE, true>(
+                    idx, num_atoms, block_size, pos, mask);
+            } else {
+                score = score_pose_lerp<MEM_TYPE, false>(
+                    idx, num_atoms, block_size, pos, mask);
+            }
+
         } else {
-            if (idx < num_atoms) {
-                score = score_pose_tmem_native<MEM_TYPE>(pos, mask);
+            if (idx < num_atoms && packed) {
+                score = score_pose_tmem_native<true>(pos, mask);
+            } else if (idx < num_atoms && !packed) {
+                score = score_pose_tmem_native<false>(pos, mask);
             }
         }
 
@@ -419,7 +435,6 @@ namespace cuDock
         }
 
         int alloc_size = num_poses * sizeof(float3);
-
 
         if (!_is_on_gpu) {
             _is_on_gpu = true;
@@ -564,10 +579,12 @@ namespace cuDock
             CUDA_CHECK_ERR(cudaMemcpyToSymbol(
                 GPU_GMEM_VOXELS,
                 _pocket.get_gpu_gmem_voxels().data(),
-                sizeof(float *) * Pocket::NUM_CHANNELS));
+                sizeof(float *) * (_pocket.is_packed() ?
+                                       Pocket::NUM_CHANNELS / 4 :
+                                       Pocket::NUM_CHANNELS)));
         } else {
             // Copy pocket voxels tmem pointers to constant memory
-            int num_textures = _pocket.is_on_gpu(GPU_TMEM_PACKED) ?
+            int num_textures = _pocket.is_packed() ?
                                Pocket::NUM_CHANNELS / 4 :
                                Pocket::NUM_CHANNELS;
             CUDA_CHECK_ERR(cudaMemcpyToSymbol(
@@ -588,7 +605,8 @@ namespace cuDock
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  _pocket.get_interpolate());
+                                  _pocket.get_interpolate(),
+                                  _pocket.is_packed());
             });
         } else if (_pocket.is_on_gpu(GPU_GMEM_SWIZZLED)) {
             CUDA_TIME_EXEC("_score_gmem_swizzled", [&](){
@@ -599,7 +617,8 @@ namespace cuDock
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  _pocket.get_interpolate());
+                                  _pocket.get_interpolate(),
+                                  _pocket.is_packed());
             });
         } else if (_pocket.is_on_gpu(GPU_TMEM)) {
             CUDA_TIME_EXEC("_score_tmem", [&](){
@@ -610,18 +629,8 @@ namespace cuDock
                                   _gpu_scores,
                                   num_atoms,
                                   block_size,
-                                  _pocket.get_interpolate());
-            });
-        } else if (_pocket.is_on_gpu(GPU_TMEM_PACKED)) {
-            CUDA_TIME_EXEC("_score_tmem_packed", [&](){
-                score_poses<GPU_TMEM_PACKED><<<
-                    num_poses,
-                    block_size>>>(_gpu_translations,
-                                  _gpu_rotations,
-                                  _gpu_scores,
-                                  num_atoms,
-                                  block_size,
-                                  _pocket.get_interpolate());
+                                  _pocket.get_interpolate(),
+                                  _pocket.is_packed());
             });
         }
     }

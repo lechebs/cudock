@@ -36,14 +36,14 @@ namespace cuDock
     const std::vector<unsigned int>
     Ligand::_channel_masks = {
         0b01100101,
-        0b10001000,
-        0b00101100,
-        0b01111100,
-        0b01111100,
-        0b01100100,
-        0b10001000,
-        0b00101100,
-        0b10000000
+        0b10101000,
+        0b00101101,
+        0b11111100,
+        0b01111101,
+        0b01100101,
+        0b10011011,
+        0b01101101,
+        0b10010010
     };
 
     const std::vector<float>
