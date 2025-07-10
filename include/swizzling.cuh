@@ -33,7 +33,6 @@ namespace cuDock
         unsigned int expand_bits(unsigned int v, unsigned int tile_size)
         {
             v &= tile_size - 1u;
-            //v &= (1 << 4) - 1u;
 
             v = (v * 0x00010001u) & 0xFF0000FFu;
             v = (v * 0x00000101u) & 0x0F00F00Fu;
@@ -54,8 +53,6 @@ namespace cuDock
                    expand_bits(z, tile_size);
         }
 
-#define TILE_SIZE 32
-
         __host__ __device__ __forceinline__
         int get_swizzled_idx(int x,
                              int y,
@@ -65,9 +62,9 @@ namespace cuDock
                              int z_offset_mult,
                              int tile_size)
         {
-            int tile_x = x / TILE_SIZE;
-            int tile_y = y / TILE_SIZE;
-            int tile_z = z / TILE_SIZE;
+            int tile_x = x / tile_size;
+            int tile_y = y / tile_size;
+            int tile_z = z / tile_size;
 
             // Tile offset
             int dst_offset = tile_z * z_offset_mult +

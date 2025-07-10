@@ -20,10 +20,10 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<Ligand::Atom> atoms;
     Parsing::read_ligand_mol2(ligand_file_path, atoms);
 
-    Pocket pocket(points, 1.0); // 0.25
+    Pocket pocket(points, 0.5);
     Ligand ligand(atoms);
 
-    const int num_poses = 1 << 5; // 20
+    const int num_poses = 1 << 16;
 
     std::cout << "num_poses=" << num_poses << std::endl;
     std::cout << "domain=(" << pocket.get_domain_size(0) 
@@ -41,10 +41,9 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
     std::vector<float> ref_scores;
     std::vector<float> res_scores;
 
-    pocket.set_swizzled_tile_size(32); // 32
-    pocket.use_compressible_memory(false); // true
+    pocket.set_swizzled_tile_size(4);
     pocket.set_interpolate(LIN_INTERPOLATE);
-    pocket.set_packed(true); // false
+    pocket.set_packed(true);
 
     docker.to_gpu();
 
@@ -69,7 +68,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] const char *argv[]) {
         float res_score = res_scores[i];
 
         if (std::abs(ref_score - res_score) > 1e-1f) {
-            std::cout << "WARNING: incorrect score at pose "
+            std::cout << "WARNING: inaccurate score at pose "
                       << i << " ("
                       << "ref: " << ref_score << ", res: "
                       << res_score << ")" << std::endl;

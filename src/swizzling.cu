@@ -27,66 +27,6 @@ namespace cuDock
                    (depth + d_pad);
         }
 
-        /*
-        __host__ __device__ __forceinline__
-        unsigned int expand_bits(unsigned int v, int num_bits_per_dim)
-        {
-            //v &= (1 << num_bits_per_dim) - 1u;
-            v &= (1 << 5) - 1u;
-
-            v = (v * 0x00010001u) & 0xFF0000FFu;
-            v = (v * 0x00000101u) & 0x0F00F00Fu;
-            v = (v * 0x00000011u) & 0xC30C30C3u;
-            v = (v * 0x00000005u) & 0x49249249u;
-
-            return v;
-        }
-
-        __host__ __device__ __forceinline__
-        unsigned int morton_encode(unsigned int x,
-                                   unsigned int y,
-                                   unsigned int z,
-                                   int num_bits_per_dim)
-        {
-            return expand_bits(x, num_bits_per_dim) * 4 +
-                   expand_bits(y, num_bits_per_dim) * 2 +
-                   expand_bits(z, num_bits_per_dim);
-        }
-
-
-        __host__ __device__ __forceinline__
-        int get_swizzled_idx(int x,
-                             int y,
-                             int z,
-                             int padded_width,
-                             int padded_height,
-                             int tile_size_in_bits)
-        {
-            // TODO: make these constants
-
-            int tile_size = 32;//1 << tile_size_in_bits;
-
-            int brick_size = 32768;//tile_size * tile_size * tile_size;
-
-            int width_in_tiles = padded_width / tile_size;
-            int height_in_tiles = padded_height / tile_size;
-
-            int tile_x = x / tile_size;
-            int tile_y = y / tile_size;
-            int tile_z = z / tile_size;
-
-            // Tile offset
-            int dst_offset = tile_z * brick_size *
-                                      width_in_tiles *
-                                      height_in_tiles +
-                             tile_y * brick_size *
-                                      width_in_tiles +
-                             tile_x * brick_size;
-
-            return morton_encode(x, y, z, tile_size_in_bits) + dst_offset;
-        }
-        */
-
         template<typename T>
         void to_swizzled_format(int width,
                                 int height,

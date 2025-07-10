@@ -268,8 +268,9 @@ namespace
 
             } else {
                 for (int c = 0; c < NUM_CHANNELS; ++c) {
-                    score += w * voxel_fetch<MEM_TYPE>(c, ni, nj, nk) *
-                             (m & 1);
+                    if (m & 1)
+                    score += w * voxel_fetch<MEM_TYPE>(c, ni, nj, nk);// *
+                             //(m & 1);
                     m >>= 1;
                 }
             }
@@ -290,10 +291,10 @@ namespace
 
         if constexpr (!PACKED) {
             for (int c = 0; c < NUM_CHANNELS; ++c) {
-                //if ((mask & 1) > 0) {
-                    score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz) *
-                             (mask & 1);
-                //        }
+                if (mask & 1)
+                    score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz);// *
+                             //(mask & 1);
+                  
                 mask >>= 1;
             }
 
@@ -545,6 +546,9 @@ namespace cuDock
         CUDA_CHECK_ERR(cudaMemcpyToSymbol(SWIZZLED_Z_OFFSET_MULT,
                                           &z_offset_mult,
                                           sizeof(int)));
+
+        //CUDA_CHECK_ERR(cudaFuncSetCacheConfig(score_poses<GPU_GMEM_SWIZZLED>,
+        //                                      cudaFuncCachePreferL1));
     }
 
     void Docker::off_gpu()
