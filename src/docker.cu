@@ -95,30 +95,6 @@ namespace
         return v1 * (1.0f - t) + v2 * t;
     }
 
-    /*
-    __device__ __forceinline__ float bilerp(float x, float y,
-                                            float v1, float v2,
-                                            float v3, float v4)
-    {
-        return lerp(y, lerp(x, v1, v2), lerp(x, v3, v4));
-    }
-
-    __device__ float trilerp(float x, float y, float z, float v[8])
-    {
-        float v1 = bilerp(x,
-                          y,
-                          v[0], v[1],
-                          v[2], v[3]);
-
-        float v2 = bilerp(x,
-                          y,
-                          v[4], v[5],
-                          v[6], v[7]);
-
-        return lerp(z, v1, v2);
-    }
-    */
-
     template<GPUMemType MEM_TYPE>
     __device__ __forceinline__
     float voxel_fetch(int c, int i, int j, int k)
@@ -294,7 +270,6 @@ namespace
                 if (mask & 1)
                     score += tex3D<float>(GPU_TMEM_VOXELS[c], tx, ty, tz);// *
                              //(mask & 1);
-                  
                 mask >>= 1;
             }
 

@@ -1,31 +1,31 @@
 # Analysis of a multi-layered map access on GPUs
 
-This project provides a CUDA based volumetric scoring kernel with multiple memory layouts.
-
-## Prerequisites
-
-Ensure that the following software is installed:
-
-* A C++ compiler with CUDA support (e.g., NVIDIA CUDA Toolkit).
-* CMake version 3.10 or higher.
+This repository contains CUDA based kernels and analysis code used to evaluate the performance of different memory layouts for volumetric scoring in a pocket-ligand docking scenario.
 
 ## Compilation
 
-1. Create a build directory in the project root:
+A C++ compiler with CUDA support and CMake (version 3.10 or higher) are required.
+
+1. Create and enter a build directory:
 
    ```bash
-   mkdir build
-   cd build
+   mkdir build && cd build
    ```
-2. Configure the project with CMake:
+2. Configure the project:
 
    ```bash
    cmake ..
    ```
-3. Build the project:
+3. Build the binaries:
 
    ```bash
    make
    ```
 
-After these steps, the compiled binaries will be located in the `build` directory.
+## Usage
+
+After building, the `main` executable will be available in the `build` directory.
+
+```bash
+./main
+```
