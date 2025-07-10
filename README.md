@@ -4,7 +4,7 @@ This repository contains CUDA based kernels and analysis code used to evaluate t
 
 ## Compilation
 
-A C++ compiler with CUDA support and CMake (version 3.10 or higher) are required.
+A C++ compiler with CUDA support and CMake (version 3.20 or higher) are required.
 
 1. Create and enter a build directory:
 
