@@ -90,11 +90,6 @@ namespace
         return pos;
     }
 
-    __device__ __forceinline__ float lerp(float t, float v1, float v2)
-    {
-        return v1 * (1.0f - t) + v2 * t;
-    }
-
     template<GPUMemType MEM_TYPE>
     __device__ __forceinline__
     float voxel_fetch(int c, int i, int j, int k)
@@ -135,21 +130,9 @@ namespace
                                        SWIZZLED_Z_OFFSET_MULT,
                                        SWIZZLED_TILE_SIZE);
             return ((float4 *) GPU_GMEM_VOXELS[c])[idx];
+        } else {
+            return tex3D<float4>(GPU_TMEM_VOXELS[c], i, j, k);
         }
-    }
-
-    __device__ __forceinline__
-    float collab_trilerp(float x, float y, float z, float v1)
-    {
-      float v2 = __shfl_down_sync(0xffffffff, v1, 1, 2);
-
-      float v12 = lerp(x, v1, v2);
-      float v34 = __shfl_down_sync(0xffffffff, v12, 2, 4);
-
-      float v1234 = lerp(y, v12, v34);
-      float v5678 = __shfl_down_sync(0xffffffff, v1234, 4, 8);
-
-      return lerp(z, v1234, v5678);
     }
 
     template<GPUMemType MEM_TYPE>
